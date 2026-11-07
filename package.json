@@ -1,6 +1,6 @@
 {
   "name": "central-ia",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Central de IA para o Windows: orquestra Claude Code e Codex com roteamento de modelo e gestão de cota.",
   "main": "src/main.js",
   "private": true,

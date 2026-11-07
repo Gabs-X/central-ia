@@ -4,6 +4,8 @@ const crypto = require('crypto');
 const { route, classify, learnPreferences } = require('./router');
 const { runClaude } = require('./providers/claude');
 const { runCodex } = require('./providers/codex');
+const path = require('path');
+const { listRepos } = require('./system');
 
 const MAX_CONTEXT_CHARS = 9000;
 const MAX_MSG_CHARS = 1800;
@@ -100,8 +102,42 @@ class Orchestrator {
     this.prefs.save();
   }
 
-  preview(prompt, { hasImage, override }) {
-    return route(prompt, { hasImage, override, usage: this.usage.limits(), config: this.getConfig(), learned: this.learned() });
+  // Repositórios conhecidos (para reconhecer "na central ia", "no taverna-bot"...). Cache de 5 min.
+  #projects() {
+    const root = this.getConfig().workspaceRoot;
+    if (!this.projCache || this.projCache.root !== root || Date.now() - this.projCache.at > 5 * 60_000) {
+      let list = [];
+      try {
+        list = listRepos(root).map((p) => ({ name: path.basename(p), path: p }));
+      } catch {}
+      this.projCache = { root, at: Date.now(), list };
+    }
+    return this.projCache.list;
+  }
+
+  // Categoria do último pedido roteado automaticamente nesta conversa.
+  #previousCategory(chat) {
+    for (let i = (chat?.messages.length || 0) - 1; i >= 0; i--) {
+      const r = chat.messages[i].route;
+      if (r && r.category !== 'manual') return r.category;
+    }
+    return null;
+  }
+
+  #route(chat, text, { hasImage, override }) {
+    return route(text, {
+      hasImage,
+      override,
+      usage: this.usage.limits(),
+      config: this.getConfig(),
+      learned: this.learned(),
+      projects: this.#projects(),
+      previous: this.#previousCategory(chat),
+    });
+  }
+
+  preview(prompt, { hasImage, override, chatId }) {
+    return this.#route(chatId ? this.get(chatId) : null, prompt, { hasImage, override });
   }
 
   // Monta o contexto que o provedor ainda não viu.
@@ -129,8 +165,14 @@ class Orchestrator {
     if (!chat) throw new Error('Conversa não encontrada');
     if (this.running.has(chatId)) throw new Error('Já existe uma tarefa rodando nesta conversa');
 
-    const decision = route(text, { hasImage: images.length > 0, override, usage: this.usage.limits(), config, learned: this.learned() });
+    const decision = this.#route(chat, text, { hasImage: images.length > 0, override });
     if (source === 'chat') this.#remember(text, images.length > 0, override);
+
+    // Conversa nova na pasta padrão citando um projeto: já trabalha dentro dele.
+    if (decision.project && !chat.messages.length && chat.cwd === config.defaultCwd) {
+      chat.cwd = decision.project.path;
+      this.emit('chats:changed', {});
+    }
 
     chat.messages.push({ role: 'user', text, images, at: Date.now() });
     if (chat.title === 'Nova conversa') chat.title = clip(text.replace(/\s+/g, ' '), 48);

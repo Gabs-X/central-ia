@@ -60,3 +60,28 @@ test('escolha manual tem prioridade', () => {
   const d = r('oi', { override: 'claude:profundo' });
   assert.equal(d.model, 'opus');
 });
+
+const projects = [
+  { name: 'central-ia', path: 'C:/repositorios/Projetos-Pessoais/central-ia' },
+  { name: 'taverna-bot', path: 'C:/repositorios/Projetos-Pessoais/taverna-bot' },
+];
+
+test('pedido de mudança no app citando o projeto não vai para o Haiku', () => {
+  const p = 'vamos fazer um ajuste e uma melhora em todos os butoes e funcoes da central IA e revisar se tudo esta funcionando como deveria melhorando e otimizando tudo';
+  const d = r(p, { projects });
+  assert.equal(d.category, 'codigo_complexo');
+  assert.equal(d.model, 'opus');
+  assert.equal(d.project.name, 'central-ia');
+  assert.notEqual(r('melhore as funcionalidades e botoes da central IA', { projects }).model, 'haiku');
+});
+
+test('continuação curta segue a categoria da conversa', () => {
+  assert.equal(r('pode fazer', { previous: 'codigo' }).category, 'codigo');
+  assert.equal(r('valeu', { previous: 'codigo' }).category, 'rapida');
+  assert.equal(r('oi').model, 'haiku');
+});
+
+test('pedido vago e mais longo vai para o Sonnet, não para o Haiku', () => {
+  const d = r('queria que você desse uma olhada geral nas coisas que eu deixei pendentes por aqui hoje cedo');
+  assert.equal(d.model, 'sonnet');
+});

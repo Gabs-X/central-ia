@@ -25,7 +25,8 @@ const el = {
   speak: $('#speak-replies'),
 };
 
-const fileUrl = (p) => `file:///${p.replace(/\\/g, '/')}`;
+// encodeURI: nomes com espaço, # ou ? não quebram a URL da imagem.
+const fileUrl = (p) => `file:///${encodeURI(p.replace(/\\/g, '/').replace(/^\/+/, ''))}`;
 const fmtNum = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}k` : String(n || 0));
 
 function providerTag(msg) {
@@ -142,10 +143,11 @@ function scrollBottom(force = false) {
 }
 
 // ---------- Envio ----------
+// Enter/Enviar: envia. Com a resposta em andamento, só o botão "Parar" cancela (Enter não cancela por engano).
 async function sendMessage() {
   const text = el.input.value.trim();
   if (state.running.has(state.chatId)) {
-    central.cancel(state.chatId);
+    toast('Aguarde a resposta ou clique em Parar.');
     return;
   }
   if (!text) return;
@@ -199,6 +201,11 @@ function updateSendButton() {
 central.onRoute(({ chatId, route }) => {
   if (state.live?.chatId !== chatId) return;
   Object.assign(state.live.msg, { provider: route.provider, model: route.model, route });
+  // O roteador pode ter levado a conversa para a pasta do projeto citado.
+  if (route.project && state.chat?.id === chatId && (state.chat.messages?.length || 0) <= 2) {
+    state.chat.cwd = route.project.path;
+    syncCwdSelect();
+  }
   fillAssistant(state.live.wrap, state.live.msg, { live: true });
 });
 
@@ -252,7 +259,7 @@ function schedulePreview() {
   previewTimer = setTimeout(async () => {
     const text = el.input.value.trim();
     if (!text) { el.badge.hidden = true; return; }
-    const r = await central.previewRoute(text, { hasImage: state.attachments.length > 0, override: el.model.value });
+    const r = await central.previewRoute(text, { hasImage: state.attachments.length > 0, override: el.model.value, chatId: state.chatId });
     const name = r.provider === 'codex' ? 'Codex' : 'Claude';
     el.badge.innerHTML = `→ <b class="${r.provider}">${name} ${escapeHtml(r.model)}</b> · ${escapeHtml(r.label)}${r.reasons.length > 1 ? ` · ${escapeHtml(r.reasons.slice(1).join(' · '))}` : ''}`;
     el.badge.title = r.reasons.join('\n');
@@ -438,7 +445,10 @@ el.input.addEventListener('keydown', (e) => {
   }
 });
 el.model.addEventListener('change', schedulePreview);
-el.send.addEventListener('click', sendMessage);
+el.send.addEventListener('click', () => {
+  if (state.running.has(state.chatId)) central.cancel(state.chatId);
+  else sendMessage();
+});
 
 $('#new-chat').addEventListener('click', () => {
   state.chatId = null;

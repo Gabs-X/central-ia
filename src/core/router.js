@@ -6,6 +6,10 @@ const CATEGORIES = {
     label: 'Pergunta rápida',
     target: { provider: 'claude', tier: 'rapido', effort: 'low' },
   },
+  geral: {
+    label: 'Pedido geral',
+    target: { provider: 'claude', tier: 'equilibrado', effort: 'medium' },
+  },
   sistema: {
     label: 'Comando no Windows',
     target: { provider: 'claude', tier: 'equilibrado', effort: 'low' },
@@ -46,7 +50,8 @@ const KEYWORDS = {
     'area de trabalho', 'downloads', 'notepad', 'explorer', 'spotify', 'discord', 'obs', 'vscode',
   ],
   codigo: [
-    'codigo', 'funcao', 'bug', 'erro', 'corrige', 'corrija', 'corrigir', 'implementa', 'implemente',
+    'codigo', 'funcao', 'funcoes', 'funcionalidade', 'botao', 'botoes', 'butao', 'butoes', 'tela', 'telas',
+    'interface', 'layout', 'frontend', 'front-end', 'backend', 'back-end', 'feature', 'bug', 'erro', 'corrige', 'corrija', 'corrigir', 'implementa', 'implemente',
     'implementar', 'refatora', 'refatore', 'teste', 'testes', 'commit', 'branch', 'git ', 'repositorio',
     'repo', 'componente', 'endpoint', 'api', 'script', 'typescript', 'javascript', 'python', 'react',
     'node', 'npm', 'css', 'html', 'sql', 'banco de dados', 'deploy', 'build', 'compila', 'lint', 'classe',
@@ -55,7 +60,8 @@ const KEYWORDS = {
   complexo: [
     'arquitetura', 'projeto inteiro', 'todo o projeto', 'do zero', 'sistema completo', 'migrar', 'migracao',
     'reescrever', 'reescreva', 'escalabilidade', 'seguranca', 'auditoria', 'performance', 'otimiza',
-    'dificil', 'complexo', 'investigue', 'investigar', 'causa raiz',
+    'dificil', 'complexo', 'investigue', 'investigar', 'causa raiz', 'todos os', 'todas as', 'tudo',
+    'revisar', 'revise', 'revisao geral',
   ],
   pesquisa: [
     'pesquisa', 'pesquise', 'pesquisar', 'busca na internet', 'procure na internet', 'procura na web',
@@ -86,15 +92,39 @@ function countHits(text, words) {
   return hits;
 }
 
-function classify(prompt, { hasImage = false } = {}) {
+// Acha um projeto citado pelo nome ("central ia" → central-ia).
+function findProject(text, projects = []) {
+  const flat = text.replace(/[-_]/g, ' ');
+  let found = null;
+  for (const p of projects) {
+    const name = normalize(p.name).trim().replace(/[-_]/g, ' ');
+    if (name.length < 4) continue;
+    if (flat.includes(` ${name} `) || flat.includes(` ${name.replace(/ /g, '')} `)) {
+      if (!found || name.length > found.len) found = { ...p, len: name.length };
+    }
+  }
+  return found && { name: found.name, path: found.path };
+}
+
+const CONTINUABLE = new Set(['codigo', 'codigo_complexo', 'raciocinio', 'pesquisa', 'escrita', 'sistema']);
+
+/**
+ * @param {string} prompt
+ * @param {object} [o]
+ * @param {boolean} [o.hasImage]
+ * @param {{name:string, path:string}[]} [o.projects] repositórios conhecidos
+ * @param {string} [o.previous] categoria do último pedido desta conversa
+ */
+function classify(prompt, { hasImage = false, projects = [], previous = null } = {}) {
   const text = normalize(prompt);
   const words = text.trim().split(' ').filter(Boolean).length;
 
   if (hasImage) return { category: 'visao', scores: {} };
 
+  const project = findProject(text, projects);
   const scores = {
     sistema: countHits(text, KEYWORDS.sistema) * 1.2,
-    codigo: countHits(text, KEYWORDS.codigo) * 1.5,
+    codigo: countHits(text, KEYWORDS.codigo) * 1.5 + (project ? 2 : 0),
     pesquisa: countHits(text, KEYWORDS.pesquisa) * 1.3,
     escrita: countHits(text, KEYWORDS.escrita),
     raciocinio: countHits(text, KEYWORDS.raciocinio),
@@ -107,16 +137,20 @@ function classify(prompt, { hasImage = false } = {}) {
   const [best, bestScore] = Object.entries(scores).sort((a, b) => b[1] - a[1])[0];
 
   if (bestScore === 0) {
-    return { category: words <= 40 ? 'rapida' : 'raciocinio', scores };
+    // "pode fazer", "e o resto?" no meio de uma tarefa: segue a categoria da conversa.
+    const courtesy = /^ (ok|okay|obrigad|valeu|vlw|blz|beleza|oi|ola|opa|bom dia|boa tarde|boa noite|tchau)\b/.test(text);
+    if (previous && CONTINUABLE.has(previous) && words <= 40 && !courtesy) return { category: previous, scores, project, continued: true };
+    // Só cumprimento ou pergunta curta vai para o Haiku; pedido mais longo e vago vai para o Sonnet.
+    return { category: words <= 12 ? 'rapida' : words <= 40 ? 'geral' : 'raciocinio', scores, project };
   }
   if (best === 'codigo' && (complexo >= 1 || words > 150)) {
-    return { category: 'codigo_complexo', scores };
+    return { category: 'codigo_complexo', scores, project };
   }
   if (best === 'raciocinio' && complexo === 0 && bestScore <= 1 && words <= 15) {
     // "qual o melhor X?" curto não precisa de Opus.
-    return { category: 'escrita', scores };
+    return { category: 'escrita', scores, project };
   }
-  return { category: best, scores };
+  return { category: best, scores, project };
 }
 
 // Retorna o maior uso (0..1) entre as janelas conhecidas de um provedor.
@@ -144,10 +178,12 @@ function route(prompt, opts = {}) {
     return { provider: 'claude', model: models[tier] || tier, tier, effort: tier === 'profundo' ? 'high' : 'medium', category: 'manual', label: 'Escolha manual', reasons: ['escolhido manualmente'] };
   }
 
-  const { category } = classify(prompt, { hasImage });
+  const { category, project, continued } = classify(prompt, { hasImage, projects: opts.projects, previous: opts.previous });
   const cat = CATEGORIES[category];
   let { provider, tier, effort } = { ...cat.target };
   reasons.push(`categoria: ${cat.label}`);
+  if (continued) reasons.push('continua o assunto da conversa');
+  if (project) reasons.push(`projeto citado: ${project.name}`);
 
   // Preferência aprendida: você costuma trocar esta categoria para outro modelo.
   const learned = opts.learned?.[category];
@@ -188,9 +224,9 @@ function route(prompt, opts = {}) {
   }
 
   if (provider === 'codex') {
-    return { provider, model: config.codex.model || 'padrão', effort, category, label: cat.label, reasons };
+    return { provider, model: config.codex.model || 'padrão', effort, category, label: cat.label, reasons, project };
   }
-  return { provider, tier, model: models[tier], effort, category, label: cat.label, reasons };
+  return { provider, tier, model: models[tier], effort, category, label: cat.label, reasons, project };
 }
 
 function learnedLabel(choice) {
