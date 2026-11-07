@@ -97,4 +97,4 @@ async function runCodex(o) {
   };
 }
 
-module.exports = { runCodex };
+module.exports = { runCodex, resolveCodex };

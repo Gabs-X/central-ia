@@ -34,6 +34,19 @@ const DEFAULT_CONFIG = {
     codexAvoidAt: 0.9, // acima disso, tarefas de código voltam para o Claude
   },
 
+  // Reuniões: transcripts salvos pelo bot após cada call.
+  meetings: {
+    enabled: true,
+    folder: 'C:\\Users\\gabri\\Downloads\\Gutenberg',
+    selfName: 'Gabriel',
+    provider: 'auto', // auto (Claude, cai para o Codex se a cota apertar) | claude | codex
+    model: 'sonnet',
+    effort: 'medium',
+    stableSeconds: 30, // espera o arquivo parar de mudar
+    minUtterances: 15, // abaixo disso a reunião é ignorada (não gasta token)
+    ignoreBefore: null, // "AAAA-MM-DD": não processa reuniões anteriores
+  },
+
   voice: {
     ttsVoice: 'Microsoft Maria Desktop',
     speakReplies: false,

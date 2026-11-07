@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, dialog, desktopCapturer, screen, shell, nativeImage } = require('electron');
+const { app, BrowserWindow, Tray, Menu, Notification, globalShortcut, ipcMain, dialog, desktopCapturer, screen, shell, nativeImage } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const { DEFAULT_CONFIG } = require('./core/config');
@@ -6,6 +6,10 @@ const { JsonStore, deepMerge } = require('./core/store');
 const { UsageTracker } = require('./core/usage');
 const { Orchestrator } = require('./core/orchestrator');
 const system = require('./core/system');
+const { MeetingsService } = require('./core/meetings');
+
+// Desenvolvimento: CENTRAL_DATA_DIR usa outra pasta de dados (e permite rodar ao lado do app instalado).
+if (process.env.CENTRAL_DATA_DIR) app.setPath('userData', process.env.CENTRAL_DATA_DIR);
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -42,6 +46,27 @@ const send = (channel, payload) => {
 
 const orchestrator = new Orchestrator({ chatsStore, usage, getConfig: () => config, emit: send });
 
+const meetingsStore = new JsonStore(path.join(dataDir, 'meetings.json'), { meetings: {}, tasks: [] });
+const meetings = new MeetingsService({
+  store: meetingsStore,
+  usage,
+  getConfig: () => config,
+  emit: send,
+  notify: (title, body) => {
+    if (!Notification.isSupported()) return;
+    const n = new Notification({ title, body, icon: path.join(__dirname, 'assets', 'icon.png') });
+    n.on('click', () => showView('meetings'));
+    n.show();
+  },
+});
+
+function showView(view) {
+  if (!win) return;
+  win.show();
+  win.focus();
+  send('app:view', view);
+}
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1180,
@@ -61,11 +86,16 @@ function createWindow() {
     },
   });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
-  win.once('ready-to-show', () => win.show());
+  // Ao iniciar com o Windows (--hidden), fica só na bandeja.
+  win.once('ready-to-show', () => { if (!process.argv.includes('--hidden')) win.show(); });
   // Uso em desenvolvimento: CENTRAL_SNAPSHOT=arquivo.png salva um print da janela e fecha.
   if (process.env.CENTRAL_SNAPSHOT) {
     win.webContents.once('did-finish-load', () =>
       setTimeout(async () => {
+        if (process.env.CENTRAL_VIEW) {
+          send('app:view', process.env.CENTRAL_VIEW);
+          await new Promise((r) => setTimeout(r, 800));
+        }
         fs.writeFileSync(process.env.CENTRAL_SNAPSHOT, (await win.webContents.capturePage()).toPNG());
         quitting = true;
         app.quit();
@@ -109,7 +139,17 @@ function createTray() {
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: 'Abrir', click: () => toggleWindow() },
+      { label: 'Painel de demandas', click: () => showView('meetings') },
       { label: 'Abrir pasta de dados', click: () => shell.openPath(dataDir) },
+      { type: 'separator' },
+      {
+        label: 'Iniciar com o Windows',
+        type: 'checkbox',
+        checked: app.getLoginItemSettings().openAtLogin,
+        // Só funciona no app empacotado (no "npm start" registraria o electron.exe puro).
+        enabled: app.isPackaged,
+        click: (item) => app.setLoginItemSettings({ openAtLogin: item.checked, args: ['--hidden'] }),
+      },
       { type: 'separator' },
       { label: 'Sair', click: () => { quitting = true; app.quit(); } },
     ]),
@@ -201,6 +241,13 @@ function registerIpc() {
   ipcMain.handle('tts:speak', (_e, text) => system.speak(text, config.voice.ttsVoice));
   ipcMain.handle('tts:stop', () => system.stopSpeaking());
   ipcMain.handle('shell:openPath', (_e, p) => shell.openPath(p));
+
+  ipcMain.handle('meetings:get', () => meetings.snapshot());
+  ipcMain.handle('meetings:scan', () => meetings.scan());
+  ipcMain.handle('meetings:reprocess', (_e, key) => meetings.reprocess(key));
+  ipcMain.handle('task:update', (_e, id, patch) => meetings.updateTask(id, patch));
+  ipcMain.handle('task:add', (_e, task) => meetings.addTask(task));
+  ipcMain.handle('task:delete', (_e, id) => meetings.deleteTask(id));
 }
 
 app.on('second-instance', () => toggleWindow());
@@ -211,12 +258,15 @@ app.whenReady().then(() => {
   createWindow();
   createTray();
   registerHotkey();
+  meetings.start();
 });
 
 app.on('before-quit', () => {
   quitting = true;
+  meetings.stop();
   chatsStore.flush();
   usageStore.flush();
+  meetingsStore.flush();
 });
 app.on('will-quit', () => globalShortcut.unregisterAll());
 app.on('window-all-closed', (e) => e.preventDefault());

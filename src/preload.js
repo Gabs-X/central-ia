@@ -34,4 +34,13 @@ contextBridge.exposeInMainWorld('central', {
   onDone: on('chat:done'),
   onUsage: on('usage:update'),
   onFocusInput: on('app:focus-input'),
+  onView: on('app:view'),
+
+  getMeetings: () => ipcRenderer.invoke('meetings:get'),
+  scanMeetings: () => ipcRenderer.invoke('meetings:scan'),
+  reprocessMeeting: (key) => ipcRenderer.invoke('meetings:reprocess', key),
+  updateTask: (id, patch) => ipcRenderer.invoke('task:update', id, patch),
+  addTask: (task) => ipcRenderer.invoke('task:add', task),
+  deleteTask: (id) => ipcRenderer.invoke('task:delete', id),
+  onMeetings: on('meetings:update'),
 });

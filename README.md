@@ -105,3 +105,25 @@ Isso gera, na pasta `dist\`:
 
 O ícone é aplicado pelo `build/after-pack.js` (rcedit), porque a assinatura do electron-builder exige permissão de link simbólico no Windows.
 Os executáveis não são assinados, então o SmartScreen pode avisar na primeira execução: clique em "Mais informações" e depois em "Executar assim mesmo".
+
+## Reuniões e painel de demandas
+
+A central observa `C:\Users\gabri\Downloads\Gutenberg`, onde o bot salva um transcript `.md` no fim de cada call. Para cada reunião nova:
+
+1. Espera 30 s com o arquivo parado e junta as partes de reconexão (`-2`, `-3`).
+2. Limpa as falas repetidas do reconhecimento de voz.
+3. Ignora reuniões curtas (menos de 15 falas) ou em que só uma pessoa falou, sem gastar token.
+4. Manda a transcrição ao Claude Sonnet, sem ferramentas e com saída em JSON validado. Se a cota do Claude passar de 90%, usa o Codex.
+5. Salva o resumo, os tópicos, as decisões e os combinados com outras pessoas, e manda o que ficou para você ao painel. Uma notificação do Windows avisa.
+
+No painel (aba **Reuniões**):
+
+- As demandas ficam em três colunas: **A fazer**, **Em andamento** e **Feito**. Dá pra arrastar entre colunas e editar com clique duplo.
+- Cada demanda mostra o prazo (com destaque se estiver atrasada), a prioridade, quem pediu e o trecho da call.
+- **Resolver com IA** abre uma conversa já com o contexto da demanda e da reunião.
+- Clicar na reunião de origem abre o resumo completo. Ali dá pra **Reprocessar** ou abrir o transcript.
+- Se a reunião ganhar uma parte nova, ela é reprocessada. Demandas em que você já mexeu são mantidas.
+
+O app precisa estar aberto para monitorar a pasta. No app instalado, ative **Iniciar com o Windows** no menu da bandeja: ele inicia escondido. Os transcripts que chegarem com o app fechado são processados quando ele abrir.
+
+Para ajustar (em `config.json`): `meetings.folder`, `meetings.model`, `meetings.minUtterances`, `meetings.ignoreBefore` (não processar reuniões antigas) e `meetings.enabled`.

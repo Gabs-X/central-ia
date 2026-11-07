@@ -12,8 +12,18 @@
       <img src="../assets/icon.png" alt="" />
       <span>Central IA</span>
     </div>
-    <button id="new-chat" class="btn primary wide">+ Nova conversa</button>
-    <nav id="chat-list" class="chat-list"></nav>
+    <div class="tabs">
+      <button class="tab active" data-view="chat">💬 Conversas</button>
+      <button class="tab" data-view="meetings">📋 Reuniões <span id="tab-badge" class="badge" hidden></span></button>
+    </div>
+    <div class="side-chat">
+      <button id="new-chat" class="btn primary wide">+ Nova conversa</button>
+      <nav id="chat-list" class="chat-list"></nav>
+    </div>
+    <div class="side-meetings" hidden>
+      <button id="open-board" class="btn wide">Painel de demandas</button>
+      <nav id="meeting-list" class="chat-list"></nav>
+    </div>
 
     <section class="usage" id="usage">
       <h3>Cota das assinaturas</h3>
@@ -25,7 +35,18 @@
     </section>
   </aside>
 
-  <main class="main">
+  <main class="main" id="view-meetings" hidden>
+    <header class="topbar">
+      <h1 id="mt-title">Painel de demandas</h1>
+      <div class="top-actions">
+        <span id="mt-status" class="muted small"></span>
+        <button id="mt-scan" class="btn small-btn" title="Procurar transcripts novos agora">Verificar agora</button>
+      </div>
+    </header>
+    <section class="mt-body" id="mt-body"></section>
+  </main>
+
+  <main class="main" id="view-chat">
     <header class="topbar">
       <h1 id="chat-title">Nova conversa</h1>
       <div class="top-actions">
@@ -84,5 +105,6 @@
 
   <script src="markdown.js"></script>
   <script src="app.js"></script>
+  <script src="meetings.js"></script>
 </body>
 </html>
