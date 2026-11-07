@@ -1,12 +1,11 @@
 // Reuniões: observa a pasta de transcripts, gera resumo e extrai as demandas
 // do Gabriel para o painel. Cada reunião vira uma chamada de IA sem ferramentas.
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 const { loadMeeting, meetingKeyFromFile } = require('./transcript');
-const { runJsonl, shorten } = require('./providers/common');
-const { resolveCodex } = require('./providers/codex');
+const { shorten } = require('./providers/common');
+const { askOnce } = require('./ai');
 
 // Schema "estrito" (tudo obrigatório, null quando não houver) para funcionar no Claude e no Codex.
 const nullableString = { type: ['string', 'null'] };
@@ -42,11 +41,12 @@ const SCHEMA = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['responsavel', 'descricao', 'prazo'],
+        required: ['responsavel', 'descricao', 'prazo', 'para_mim'],
         properties: {
           responsavel: { type: 'string' },
           descricao: { type: 'string' },
           prazo: nullableString,
+          para_mim: { type: 'boolean', description: 'true se é uma entrega para o Gabriel, algo de que ele depende ou que combinaram diretamente com ele' },
         },
       },
     },
@@ -64,7 +64,7 @@ function instructions(meeting, selfName) {
     '- titulo, tipo e um resumo objetivo em português do que foi a call;',
     '- topicos e decisoes realmente tomadas;',
     `- minhas_demandas: SÓ o que ficou para o ${selfName} fazer — algo que ele se comprometeu ("vou fazer", "deixa comigo", "te mando") ou que pediram diretamente a ele. Uma demanda por ação, sem duplicar, escrita no infinitivo e sem citar o ${selfName} em terceira pessoa (ex.: "Enviar o review da PR 1587 ao Mateus", nunca "ele deve..."). Converta prazos relativos ("amanhã", "sexta") em datas AAAA-MM-DD a partir da data da reunião. Prioridade alta se tiver prazo curto ou bloquear alguém;`,
-    '- demandas_de_outros: o que outras pessoas ficaram de fazer (principalmente se for entregar algo ao Gabriel).',
+    '- demandas_de_outros: o que outras pessoas ficaram de fazer; marque para_mim=true só quando a entrega é para o Gabriel ou ele depende dela (tarefas de um mentorado no próprio projeto, por exemplo, são para_mim=false).',
     'Não invente demandas. Conversa informal, papo ou teste sem conteúdo de trabalho: relevante=false e listas vazias.',
     '',
     'TRANSCRIÇÃO:',
@@ -85,6 +85,8 @@ class MeetingsService {
     this.scanTimer = null;
     if (!this.store.data.meetings) this.store.data.meetings = {};
     if (!this.store.data.tasks) this.store.data.tasks = [];
+    if (!this.store.data.waiting) this.store.data.waiting = [];
+    this.textCache = new Map(); // key -> transcript limpo (para a busca)
   }
 
   get cfg() {
@@ -105,6 +107,15 @@ class MeetingsService {
     }
     // Rede de segurança: o watch do Windows às vezes perde eventos.
     this.scanTimer = setInterval(() => this.scan(), 2 * 60 * 1000);
+    this.backfillWaiting();
+    // Retoma o que ficou pela metade (app fechado no meio, ou adiado pela cota).
+    for (const m of Object.values(this.store.data.meetings)) {
+      if (m.status === 'na fila' || m.status === 'processando') this.#enqueue(m.key);
+      if (m.status === 'adiada') {
+        const wait = Math.max(5000, (m.retryAt || 0) - Date.now());
+        this.timers.set(`retry:${m.key}`, setTimeout(() => this.reprocess(m.key), wait));
+      }
+    }
     this.scan();
   }
 
@@ -112,6 +123,8 @@ class MeetingsService {
     this.watcher?.close();
     this.watcher = null;
     clearInterval(this.scanTimer);
+    for (const t of this.timers.values()) clearTimeout(t);
+    this.timers.clear();
   }
 
   #debounceScan() {
@@ -209,7 +222,14 @@ class MeetingsService {
       await this.#process(key);
     } catch (err) {
       const m = this.store.data.meetings[key];
-      if (m) {
+      if (m && err.deferred) {
+        // Cota alta: tenta de novo quando a janela renovar.
+        m.status = 'adiada';
+        m.retryAt = err.retryAt;
+        m.reason = err.message;
+        clearTimeout(this.timers.get(`retry:${key}`));
+        this.timers.set(`retry:${key}`, setTimeout(() => this.reprocess(key), Math.max(5000, err.retryAt - Date.now())));
+      } else if (m) {
         m.status = 'erro';
         m.reason = shorten(err.message, 300);
       }
@@ -247,7 +267,8 @@ class MeetingsService {
     this.emit('meetings:update', this.snapshot());
 
     const prompt = `${instructions({ ...data, isoDate: m.isoDate }, selfName)}\n${data.text}`;
-    const result = await this.#analyze(prompt, config);
+    const result = await askOnce({ feature: 'meetings', prompt, schema: SCHEMA, config, usage: this.usage });
+    this.textCache.delete(key);
 
     m.analysis = result.data;
     m.title = result.data.titulo || m.title;
@@ -257,9 +278,10 @@ class MeetingsService {
     m.processedAt = Date.now();
     m.status = result.data.relevante === false ? 'sem demandas' : 'pronta';
     m.reason = null;
-    this.usage.record(result.provider, result.model, result.tokens);
+    delete m.retryAt;
 
     const added = this.#mergeTasks(m, result.data.minhas_demandas || []);
+    this.#mergeWaiting(m, result.data.demandas_de_outros || []);
     this.emit('usage:update', this.usage.summary());
     if (added > 0 || result.data.relevante !== false) {
       this.notify(
@@ -297,83 +319,73 @@ class MeetingsService {
     return added;
   }
 
-  async #analyze(prompt, config) {
-    const lim = this.usage.limits();
-    const claudeUtil = Math.max(lim.claude?.fiveHour ?? 0, lim.claude?.weekly ?? 0);
-    const useCodex =
-      this.cfg.provider === 'codex' ||
-      (this.cfg.provider !== 'claude' && (lim.claude?.status === 'rejected' || claudeUtil >= config.quota.claudeAvoidAt));
-    return useCodex ? this.#analyzeCodex(prompt, config) : this.#analyzeClaude(prompt, config);
-  }
-
-  async #analyzeClaude(prompt, config) {
-    const model = this.cfg.model || config.claude.models.equilibrado;
-    let out = null;
-    let usage = {};
-    let resolvedModel = model;
-    let error = null;
-    const { code, stderr } = await runJsonl({
-      cmd: config.claude.bin,
-      args: [
-        '-p', '--output-format', 'stream-json', '--verbose',
-        '--model', model, '--effort', this.cfg.effort || 'medium',
-        '--tools', '', '--no-session-persistence', '--disable-slash-commands',
-        '--json-schema', JSON.stringify(SCHEMA),
-      ],
-      cwd: os.tmpdir(),
-      input: prompt,
-      onJson: (ev) => {
-        if (ev.type === 'system' && ev.subtype === 'init' && ev.model) resolvedModel = ev.model;
-        if (ev.type === 'rate_limit_event') this.usage.updateClaudeLimits(ev.rate_limit_info);
-        if (ev.type === 'result') {
-          usage = ev.usage || {};
-          if (ev.is_error) error = ev.result || ev.subtype;
-          out = ev.structured_output || tryJson(ev.result);
-        }
-      },
-    });
-    if (!out) throw new Error(error || shorten(stderr, 300) || `claude saiu com código ${code}`);
-    return {
-      provider: 'claude',
-      model: resolvedModel,
-      data: out,
-      tokens: {
-        input: (usage.input_tokens || 0) + (usage.cache_creation_input_tokens || 0),
-        cached: usage.cache_read_input_tokens || 0,
-        output: usage.output_tokens || 0,
-      },
-    };
-  }
-
-  async #analyzeCodex(prompt, config) {
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'central-ia-'));
-    const schemaFile = path.join(tmp, 'schema.json');
-    const outFile = path.join(tmp, 'saida.json');
-    fs.writeFileSync(schemaFile, JSON.stringify(SCHEMA));
-    const { cmd, pre } = resolveCodex(config);
-    let usage = {};
-    try {
-      const args = [...pre, 'exec', '--json', '--skip-git-repo-check', '--ephemeral', '-s', 'read-only', '-C', tmp,
-        '--output-schema', schemaFile, '-o', outFile, '-c', 'model_reasoning_effort="low"'];
-      if (config.codex.model) args.push('-m', config.codex.model);
-      args.push('-');
-      const { code, stderr } = await runJsonl({
-        cmd, args, cwd: tmp, input: prompt,
-        onJson: (ev) => { if (ev.type === 'turn.completed') usage = ev.usage || {}; },
+  // O que outras pessoas ficaram de fazer (para o painel de cobranças).
+  #mergeWaiting(m, outros) {
+    const self = normText(this.cfg.selfName);
+    const list = this.store.data.waiting;
+    const keep = list.filter((w) => w.meetingKey !== m.key || w.touched || w.status !== 'open');
+    const seen = new Set(keep.filter((w) => w.meetingKey === m.key).map((w) => normText(w.person + w.text)));
+    for (const o of outros) {
+      if (!o?.descricao || !o.responsavel || normText(o.responsavel).startsWith(self)) continue;
+      if (seen.has(normText(o.responsavel + o.descricao))) continue;
+      keep.push({
+        id: crypto.randomUUID(),
+        meetingKey: m.key,
+        person: o.responsavel,
+        text: o.descricao,
+        deadline: /^d{4}-d{2}-d{2}$/.test(o.prazo || '') ? o.prazo : null,
+        forMe: typeof o.para_mim === 'boolean' ? o.para_mim : undefined,
+        status: 'open',
+        touched: false,
+        createdAt: Date.now(),
       });
-      const data = fs.existsSync(outFile) ? tryJson(fs.readFileSync(outFile, 'utf8')) : null;
-      if (!data) throw new Error(shorten(stderr, 300) || `codex saiu com código ${code}`);
-      this.usage.refreshCodexLimits();
-      const cached = usage.cached_input_tokens || 0;
-      return {
-        provider: 'codex',
-        model: config.codex.model || 'padrão do Codex',
-        data,
-        tokens: { input: Math.max(0, (usage.input_tokens || 0) - cached), cached, output: (usage.output_tokens || 0) + (usage.reasoning_output_tokens || 0) },
-      };
-    } finally {
-      fs.rmSync(tmp, { recursive: true, force: true });
     }
+    this.store.data.waiting = keep;
+  }
+
+  // Reaproveita a análise já salva para preencher "aguardando outros" sem gastar token.
+  backfillWaiting() {
+    let changed = false;
+    for (const m of Object.values(this.store.data.meetings)) {
+      if (!m.analysis || this.store.data.waiting.some((w) => w.meetingKey === m.key)) continue;
+      this.#mergeWaiting(m, m.analysis.demandas_de_outros || []);
+      changed = true;
+    }
+    if (changed) this.store.save();
+  }
+
+  updateWaiting(id, patch) {
+    const w = this.store.data.waiting.find((x) => x.id === id);
+    if (!w) return null;
+    for (const k of ['status', 'text', 'deadline', 'person', 'lastNudgedAt']) if (k in patch) w[k] = patch[k];
+    w.touched = true;
+    this.store.save();
+    this.emit('meetings:update', this.snapshot());
+    return w;
+  }
+
+  deleteWaiting(id) {
+    this.store.data.waiting = this.store.data.waiting.filter((w) => w.id !== id);
+    this.store.save();
+    this.emit('meetings:update', this.snapshot());
+  }
+
+  // Transcript limpo de uma reunião (com cache) — usado pela busca.
+  transcriptText(key) {
+    if (this.textCache.has(key)) return this.textCache.get(key);
+    const m = this.store.data.meetings[key];
+    if (!m?.files?.length) return '';
+    try {
+      const text = loadMeeting(m.files.filter((f) => fs.existsSync(f)), { selfName: this.cfg.selfName }).text;
+      this.textCache.set(key, text);
+      return text;
+    } catch {
+      return '';
+    }
+  }
+
+  meetingsRaw() {
+    return Object.values(this.store.data.meetings);
   }
 
   // ---- Painel ----
@@ -386,7 +398,7 @@ class MeetingsService {
           : null,
       }))
       .sort((a, b) => (b.endedAt || 0) - (a.endedAt || 0));
-    return { meetings, tasks: this.store.data.tasks, busy: this.busy, queue: this.queue.length, enabled: this.cfg.enabled, folder: this.cfg.folder };
+    return { meetings, tasks: this.store.data.tasks, waiting: this.store.data.waiting, busy: this.busy, queue: this.queue.length, enabled: this.cfg.enabled, folder: this.cfg.folder };
   }
 
   updateTask(id, patch) {
@@ -401,8 +413,22 @@ class MeetingsService {
     return t;
   }
 
-  addTask({ text, deadline = null, priority = 'media' }) {
-    const t = { id: crypto.randomUUID(), meetingKey: null, text, deadline, priority, evidence: '', status: 'todo', touched: true, createdAt: Date.now(), updatedAt: Date.now() };
+  addTask({ text, deadline = null, priority = 'media', requestedBy = null, evidence = '', source = 'manual', link = null }) {
+    const t = {
+      id: crypto.randomUUID(),
+      meetingKey: null,
+      text,
+      deadline,
+      priority: ['alta', 'media', 'baixa'].includes(priority) ? priority : 'media',
+      requestedBy,
+      evidence,
+      source,
+      link,
+      status: 'todo',
+      touched: source === 'manual',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
     this.store.data.tasks.push(t);
     this.store.save();
     this.emit('meetings:update', this.snapshot());
@@ -420,13 +446,5 @@ function normText(s) {
   return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w ]/g, '').replace(/\s+/g, ' ').trim();
 }
 
-function tryJson(s) {
-  if (!s) return null;
-  try {
-    return JSON.parse(String(s).replace(/^```(?:json)?\s*|\s*```$/g, ''));
-  } catch {
-    return null;
-  }
-}
 
 module.exports = { MeetingsService, SCHEMA };

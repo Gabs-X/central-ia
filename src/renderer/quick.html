@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; media-src 'self' mediastream:" />
+  <title>Central IA · rápida</title>
+  <link rel="stylesheet" href="quick.css" />
+</head>
+<body>
+  <div class="q" id="q">
+    <div class="q-row">
+      <img src="../assets/icon.png" alt="" class="q-logo" />
+      <input id="q-input" placeholder="Pergunte qualquer coisa…  (Enter envia · Esc fecha)" autocomplete="off" spellcheck="false" />
+      <button id="q-mic" class="q-btn" title="Falar">🎤</button>
+    </div>
+    <div id="q-clip" class="q-clip" hidden>
+      <pre id="q-clip-text"></pre>
+      <div class="q-chips">
+        <button data-a="Explique de forma simples o que é isto:">Explicar</button>
+        <button data-a="Traduza para português (ou para inglês, se já estiver em português):">Traduzir</button>
+        <button data-a="Corrija erros de ortografia e gramática e devolva só o texto corrigido:">Corrigir</button>
+        <button data-a="Resuma em poucos tópicos:">Resumir</button>
+        <button data-a="Isto é um erro/log. Explique a causa provável e como resolver:">Diagnosticar erro</button>
+      </div>
+    </div>
+    <div id="q-route" class="q-route" hidden></div>
+    <div id="q-answer" class="q-answer" hidden>
+      <div id="q-tools" class="q-tools"></div>
+      <div id="q-text" class="q-text"></div>
+      <div class="q-actions">
+        <button id="q-copy">Copiar</button>
+        <button id="q-open">Abrir na Central</button>
+        <span id="q-meta" class="q-meta"></span>
+      </div>
+    </div>
+  </div>
+  <script src="markdown.js"></script>
+  <script src="voice.js"></script>
+  <script src="quick.js"></script>
+</body>
+</html>

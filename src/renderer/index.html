@@ -5,6 +5,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: file:; style-src 'self'; script-src 'self'" />
   <title>Central IA</title>
   <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="views.css" />
 </head>
 <body>
   <aside class="sidebar">
@@ -12,18 +13,26 @@
       <img src="../assets/icon.png" alt="" />
       <span>Central IA</span>
     </div>
-    <div class="tabs">
-      <button class="tab active" data-view="chat">💬 Conversas</button>
-      <button class="tab" data-view="meetings">📋 Reuniões <span id="tab-badge" class="badge" hidden></span></button>
-    </div>
+    <nav class="tabs" aria-label="Seções">
+      <button class="tab" data-view="today">☀️<span>Hoje</span><b id="badge-today" class="badge" hidden></b></button>
+      <button class="tab active" data-view="chat">💬<span>Conversas</span></button>
+      <button class="tab" data-view="meetings">📋<span>Reuniões</span><b id="tab-badge" class="badge" hidden></b></button>
+      <button class="tab" data-view="auto">⚡<span>Automações</span></button>
+      <button class="tab" data-view="usage">📊<span>Uso</span></button>
+      <button class="tab" data-view="settings">⚙️<span>Ajustes</span></button>
+    </nav>
     <div class="side-chat">
       <button id="new-chat" class="btn primary wide">+ Nova conversa</button>
       <nav id="chat-list" class="chat-list"></nav>
     </div>
     <div class="side-meetings" hidden>
-      <button id="open-board" class="btn wide">Painel de demandas</button>
+      <div class="seg">
+        <button id="open-board" class="active">Painel</button>
+        <button id="open-people">Pessoas</button>
+      </div>
       <nav id="meeting-list" class="chat-list"></nav>
     </div>
+    <div class="side-spacer"></div>
 
     <section class="usage" id="usage">
       <h3>Cota das assinaturas</h3>
@@ -35,6 +44,18 @@
     </section>
   </aside>
 
+  <main class="main" id="view-today" hidden>
+    <header class="topbar">
+      <h1 id="today-title">Hoje</h1>
+      <div class="top-actions">
+        <button class="btn small-btn" data-brief="daily">☀️ Briefing do dia</button>
+        <button class="btn small-btn" data-brief="eod">🌙 Fechamento</button>
+        <button class="btn small-btn" data-brief="weekly">📅 Resumo da semana</button>
+      </div>
+    </header>
+    <section class="mt-body" id="today-body"></section>
+  </main>
+
   <main class="main" id="view-meetings" hidden>
     <header class="topbar">
       <h1 id="mt-title">Painel de demandas</h1>
@@ -43,8 +64,30 @@
         <button id="mt-scan" class="btn small-btn" title="Procurar transcripts novos agora">Verificar agora</button>
       </div>
     </header>
+    <form class="search-bar" id="mt-search">
+      <input id="mt-q" placeholder="🔎 Pergunte sobre suas reuniões… ex.: “o que o Luender falou sobre o BPMN?”" autocomplete="off" />
+      <button class="btn primary small-btn">Perguntar</button>
+    </form>
     <section class="mt-body" id="mt-body"></section>
   </main>
+
+  <main class="main" id="view-auto" hidden>
+    <header class="topbar"><h1>Automações</h1></header>
+    <section class="mt-body" id="auto-body"></section>
+  </main>
+
+  <main class="main" id="view-usage" hidden>
+    <header class="topbar"><h1>Uso e cota</h1></header>
+    <section class="mt-body" id="usage-body"></section>
+  </main>
+
+  <main class="main" id="view-settings" hidden>
+    <header class="topbar"><h1>Ajustes e integrações</h1></header>
+    <section class="mt-body" id="settings-body"></section>
+  </main>
+
+  <div id="toast" class="toast" hidden></div>
+  <div id="modal" class="modal" hidden><div class="modal-card" id="modal-card"></div></div>
 
   <main class="main" id="view-chat">
     <header class="topbar">
@@ -85,7 +128,7 @@
         <div class="left">
           <button class="icon-btn" id="btn-screen" title="Anexar captura da tela">🖥️</button>
           <button class="icon-btn" id="btn-image" title="Anexar imagem">🖼️</button>
-          <button class="icon-btn" id="btn-voice" title="Ditar por voz (Win+H)">🎤</button>
+          <button class="icon-btn" id="btn-voice" title="Falar (Whisper; sem ele, ditado do Windows)">🎤</button>
           <span id="route-badge" class="route-badge" hidden></span>
         </div>
         <div class="right">
@@ -104,7 +147,14 @@
   </main>
 
   <script src="markdown.js"></script>
+  <script src="common.js"></script>
+  <script src="voice.js"></script>
   <script src="app.js"></script>
   <script src="meetings.js"></script>
+  <script src="today.js"></script>
+  <script src="automations.js"></script>
+  <script src="usage-view.js"></script>
+  <script src="settings.js"></script>
+  <script src="nav.js"></script>
 </body>
 </html>

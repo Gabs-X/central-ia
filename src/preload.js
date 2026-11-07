@@ -5,42 +5,103 @@ const on = (channel) => (fn) => {
   ipcRenderer.on(channel, handler);
   return () => ipcRenderer.removeListener(channel, handler);
 };
+const inv = (channel) => (...args) => ipcRenderer.invoke(channel, ...args);
 
 contextBridge.exposeInMainWorld('central', {
-  getConfig: () => ipcRenderer.invoke('config:get'),
-  setConfig: (partial) => ipcRenderer.invoke('config:set', partial),
+  // Configuração
+  getConfig: inv('config:get'),
+  setConfig: inv('config:set'),
+  hotkeyStatus: inv('hotkeys:status'),
 
-  listChats: () => ipcRenderer.invoke('chats:list'),
-  getChat: (id) => ipcRenderer.invoke('chat:get', id),
-  createChat: (cwd) => ipcRenderer.invoke('chat:create', cwd),
-  deleteChat: (id) => ipcRenderer.invoke('chat:delete', id),
-  setCwd: (id, cwd) => ipcRenderer.invoke('chat:setCwd', id, cwd),
-  send: (id, payload) => ipcRenderer.invoke('chat:send', id, payload),
-  cancel: (id) => ipcRenderer.invoke('chat:cancel', id),
-  previewRoute: (text, opts) => ipcRenderer.invoke('route:preview', text, opts),
+  // Conversas
+  listChats: inv('chats:list'),
+  getChat: inv('chat:get'),
+  createChat: inv('chat:create'),
+  deleteChat: inv('chat:delete'),
+  setCwd: inv('chat:setCwd'),
+  send: inv('chat:send'),
+  cancel: inv('chat:cancel'),
+  previewRoute: inv('route:preview'),
+  getLearning: inv('learning:get'),
+  resetLearning: inv('learning:reset'),
 
-  getUsage: () => ipcRenderer.invoke('usage:get'),
-  listRepos: () => ipcRenderer.invoke('repos:list'),
-  pickFolder: () => ipcRenderer.invoke('dialog:folder'),
-  pickImages: () => ipcRenderer.invoke('dialog:image'),
-  captureScreen: () => ipcRenderer.invoke('screen:capture'),
-  dictate: () => ipcRenderer.invoke('voice:dictate'),
-  speak: (text) => ipcRenderer.invoke('tts:speak', text),
-  stopSpeaking: () => ipcRenderer.invoke('tts:stop'),
-  openPath: (p) => ipcRenderer.invoke('shell:openPath', p),
+  // Sistema
+  getUsage: inv('usage:get'),
+  listRepos: inv('repos:list'),
+  pickFolder: inv('dialog:folder'),
+  pickImages: inv('dialog:image'),
+  captureScreen: inv('screen:capture'),
+  dictate: inv('voice:dictate'),
+  speak: inv('tts:speak'),
+  stopSpeaking: inv('tts:stop'),
+  openPath: inv('shell:openPath'),
+  openExternal: inv('shell:openExternal'),
+  copy: inv('clipboard:write'),
+  readClipboard: inv('clipboard:read'),
+  showView: inv('app:showView'),
 
+  // Reuniões e demandas
+  getMeetings: inv('meetings:get'),
+  scanMeetings: inv('meetings:scan'),
+  reprocessMeeting: inv('meetings:reprocess'),
+  updateTask: inv('task:update'),
+  addTask: inv('task:add'),
+  deleteTask: inv('task:delete'),
+  updateWaiting: inv('waiting:update'),
+  deleteWaiting: inv('waiting:delete'),
+  suggestRepo: inv('task:suggestRepo'),
+
+  // Insights
+  search: inv('insights:search'),
+  people: inv('insights:people'),
+  today: inv('insights:today'),
+  briefings: inv('insights:briefings'),
+  makeBriefing: inv('insights:briefing'),
+  nudge: inv('insights:nudge'),
+  meetingMarkdown: inv('insights:markdown'),
+  saveMeetingMarkdown: inv('insights:saveMarkdown'),
+  mailMeeting: inv('insights:mailto'),
+
+  // Automações
+  getAutomations: inv('auto:get'),
+  saveRoutine: inv('auto:saveRoutine'),
+  deleteRoutine: inv('auto:deleteRoutine'),
+  runRoutine: inv('auto:runRoutine'),
+  saveSchedule: inv('auto:saveSchedule'),
+  deleteSchedule: inv('auto:deleteSchedule'),
+  runSchedule: inv('auto:runSchedule'),
+
+  // Integrações
+  githubPrs: inv('github:prs'),
+  calendarStatus: inv('calendar:status'),
+  slackStatus: inv('slack:status'),
+  slackSend: inv('slack:send'),
+  slackImport: inv('slack:import'),
+  whisperStatus: inv('whisper:status'),
+  whisperInstall: inv('whisper:install'),
+  transcribe: inv('whisper:transcribe'),
+
+  // Janela rápida
+  quickHide: inv('quick:hide'),
+  quickAsk: inv('quick:ask'),
+  loginItem: inv('app:loginItem'),
+  quickResize: inv('quick:resize'),
+  quickPin: inv('quick:pin'),
+  quickOpenInMain: inv('quick:openInMain'),
+
+  // Eventos
   onRoute: on('chat:route'),
   onEvent: on('chat:event'),
   onDone: on('chat:done'),
+  onChatOpen: on('chat:open'),
+  onChatsChanged: on('chats:changed'),
   onUsage: on('usage:update'),
   onFocusInput: on('app:focus-input'),
   onView: on('app:view'),
-
-  getMeetings: () => ipcRenderer.invoke('meetings:get'),
-  scanMeetings: () => ipcRenderer.invoke('meetings:scan'),
-  reprocessMeeting: (key) => ipcRenderer.invoke('meetings:reprocess', key),
-  updateTask: (id, patch) => ipcRenderer.invoke('task:update', id, patch),
-  addTask: (task) => ipcRenderer.invoke('task:add', task),
-  deleteTask: (id) => ipcRenderer.invoke('task:delete', id),
   onMeetings: on('meetings:update'),
+  onAutomations: on('automations:update'),
+  onBriefing: on('briefing:new'),
+  onWhisperProgress: on('whisper:progress'),
+  onQuickOpen: on('quick:open'),
+  onQuickVoiceToggle: on('quick:voice-toggle'),
 });

@@ -149,6 +149,21 @@ function route(prompt, opts = {}) {
   let { provider, tier, effort } = { ...cat.target };
   reasons.push(`categoria: ${cat.label}`);
 
+  // Preferência aprendida: você costuma trocar esta categoria para outro modelo.
+  const learned = opts.learned?.[category];
+  if (learned) {
+    const [lp, lt] = learned.split(':');
+    if (lp === 'codex') {
+      provider = 'codex';
+      effort = lt === 'high' ? 'high' : lt === 'low' ? 'low' : 'medium';
+    } else if (models[lt]) {
+      provider = 'claude';
+      tier = lt;
+      effort = lt === 'profundo' ? 'high' : lt === 'rapido' ? 'low' : 'medium';
+    }
+    reasons.push(`aprendido: você costuma usar ${learnedLabel(learned)} aqui`);
+  }
+
   const claudeUtil = maxUtil(usage.claude);
   const codexUtil = maxUtil(usage.codex);
   const claudeBlocked = usage.claude?.status === 'rejected';
@@ -178,4 +193,29 @@ function route(prompt, opts = {}) {
   return { provider, tier, model: models[tier], effort, category, label: cat.label, reasons };
 }
 
-module.exports = { route, classify, CATEGORIES, normalize };
+function learnedLabel(choice) {
+  return (
+    { 'claude:rapido': 'Haiku', 'claude:equilibrado': 'Sonnet', 'claude:profundo': 'Opus', 'codex:medium': 'Codex', 'codex:high': 'Codex (alto)', 'codex:low': 'Codex' }[choice] ||
+    choice
+  );
+}
+
+/**
+ * Transforma o histórico de trocas manuais em preferências por categoria.
+ * @param {{category:string, choice:string}[]} overrides
+ */
+function learnPreferences(overrides, minVotes = 3) {
+  const byCat = {};
+  for (const o of overrides) (byCat[o.category] ||= []).push(o.choice);
+  const out = {};
+  for (const [cat, choices] of Object.entries(byCat)) {
+    const recent = choices.slice(-5);
+    const counts = {};
+    for (const c of recent) counts[c] = (counts[c] || 0) + 1;
+    const [best, n] = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+    if (n >= minVotes) out[cat] = best;
+  }
+  return out;
+}
+
+module.exports = { route, classify, learnPreferences, learnedLabel, CATEGORIES, normalize };

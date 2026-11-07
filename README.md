@@ -127,3 +127,48 @@ No painel (aba **Reuniões**):
 O app precisa estar aberto para monitorar a pasta. No app instalado, ative **Iniciar com o Windows** no menu da bandeja: ele inicia escondido. Os transcripts que chegarem com o app fechado são processados quando ele abrir.
 
 Para ajustar (em `config.json`): `meetings.folder`, `meetings.model`, `meetings.minUtterances`, `meetings.ignoreBefore` (não processar reuniões antigas) e `meetings.enabled`.
+
+## Novidades da 0.3
+
+### Telas
+| Aba | O que tem |
+|---|---|
+| ☀️ **Hoje** | Demandas atrasadas, para hoje e para os próximos 3 dias. Próximas reuniões com a pauta (o que você deve a essas pessoas e o que elas te devem). O que outras pessoas te devem. PRs do GitHub. Briefing com IA. |
+| 💬 **Conversas** | O chat de sempre. O 🎤 agora usa o Whisper local quando ele está instalado. |
+| 📋 **Reuniões** | Painel com a coluna **Aguardando outros** (com **Cobrar**), **busca** em todas as transcrições, **Pessoas** e a página de cada reunião com **Copiar/Salvar .md/E-mail**. |
+| ⚡ **Automações** | Atalhos de rotina (um clique, também no menu da bandeja) e agendamentos. |
+| 📊 **Uso** | Tokens por dia e por função, evolução da cota, orçamento e o que o roteador aprendeu. |
+| ⚙️ **Ajustes** | Agenda, GitHub, Slack, voz, atalhos, reuniões e geral. |
+
+### Atalhos globais (padrão)
+| Atalho | Ação |
+|---|---|
+| `Ctrl+Espaço` | Mostra ou esconde a Central. |
+| `Alt+Espaço` | Janela rápida: pergunta e resposta por cima de tudo. |
+| `Ctrl+Alt+Espaço` | Janela rápida com o que você copiou: Explicar, Traduzir, Corrigir, Resumir, Diagnosticar erro. |
+| `Ctrl+Alt+V` | Fala: grava, transcreve com o Whisper e envia. |
+
+### Funções automáticas e orçamento
+Reuniões, briefings e importação do Slack são **de segundo plano**. Elas usam o Claude até o limite do orçamento (padrão: 70%), depois passam para o Codex (até 85%) e, se as duas cotas estiverem altas, **esperam a janela renovar**. Assim sempre sobra cota pra você no chat. Dá pra ajustar em **Uso**.
+
+### Roteador que aprende
+Quando você troca o modelo manualmente 3 vezes (das últimas 5) para o mesmo tipo de pedido, essa escolha vira o padrão daquela categoria. Dá pra ver e apagar o que ele aprendeu em **Uso**.
+
+### Aguardando outros e cobranças
+Cada reunião também registra o que os outros combinaram de fazer. A IA marca o que depende de você (`para_mim`); o resto fica escondido em "ver todos os combinados". Quando passa do prazo, chega uma notificação (às 10h e às 15h). **Cobrar** gera a mensagem para você copiar ou, com o Slack conectado, enviar por DM.
+
+### Pauta antes da call
+Se uma reunião tem o mesmo código do Meet em dias diferentes, ela é tratada como recorrente e a Central aprende o horário. Com a agenda conectada, vale para todos os eventos. Alguns minutos antes, chega a pauta: pendências com essas pessoas e o resumo da última vez.
+
+### Integrações
+- **Agenda:** endereço secreto iCal do Google Agenda, sem OAuth. Eventos recorrentes são expandidos e o link do Meet é ligado ao transcript.
+- **GitHub:** usa o `gh` já logado; as contas ficam em Ajustes.
+- **Slack:** token de usuário (`xoxp-`) com `search:read`, `users:read`, `im:write` e `chat:write`. Envia cobranças por DM e importa menções como demandas.
+- **Voz:** whisper.cpp local. Instale em Ajustes → Voz: baixa o binário oficial e o modelo (`tiny`, `base` ou `small`). A escuta contínua ("Central, …") é opcional.
+
+O token do Slack e o endereço da agenda ficam **criptografados com o DPAPI do Windows** (`safeStorage`) no `config.json`, e a interface nunca recebe o valor real.
+
+### Desenvolvimento
+- `CENTRAL_DATA_DIR=pasta` roda com outra pasta de dados, ao lado do app instalado.
+- `CENTRAL_SNAPSHOT=print.png CENTRAL_VIEW=today` salva um print da tela e fecha; os erros do console vão para `print.png.log`.
+- `CENTRAL_SNAPSHOT_QUICK=print.png` faz o mesmo para a janela rápida.

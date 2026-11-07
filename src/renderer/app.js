@@ -220,7 +220,7 @@ central.onEvent(({ chatId, kind, text }) => {
   }
 });
 
-central.onDone(async ({ chatId, message }) => {
+central.onDone(async ({ chatId, message, source }) => {
   state.running.delete(chatId);
   updateSendButton();
   if (state.live?.chatId === chatId) {
@@ -237,6 +237,7 @@ central.onDone(async ({ chatId, message }) => {
     state.chat = await central.getChat(chatId);
     renderMessages();
   }
+  if (source === 'quick') return refreshList(); // a janela rápida mostra a resposta
   if (el.speak.checked && message.text) central.speak(message.text);
   if (document.hidden || !document.hasFocus()) {
     new Notification('Central IA', { body: (message.text || message.error || 'Tarefa concluída').slice(0, 140) });
@@ -293,9 +294,43 @@ $('#btn-image').addEventListener('click', async () => {
   schedulePreview();
 });
 
-$('#btn-voice').addEventListener('click', () => {
-  el.input.focus();
-  central.dictate();
+// 🎤: com o Whisper instalado grava e transcreve aqui mesmo; sem ele, abre o ditado do Windows (Win+H).
+let recording = null;
+$('#btn-voice').addEventListener('click', async () => {
+  const btn = $('#btn-voice');
+  if (recording) {
+    recording.stop();
+    return;
+  }
+  const ws = await central.whisperStatus();
+  if (!ws.installed) {
+    el.input.focus();
+    central.dictate();
+    return;
+  }
+  try {
+    recording = await Voice.record({ onLevel: (l) => (btn.style.boxShadow = `0 0 0 ${Math.round(l * 6)}px rgba(255,92,122,.5)`) });
+    btn.classList.add('rec');
+    btn.title = 'Gravando… clique para parar';
+    const bytes = await recording.done;
+    btn.classList.remove('rec');
+    btn.style.boxShadow = '';
+    btn.title = 'Falar';
+    recording = null;
+    if (!bytes) return toast('Não ouvi nada.');
+    btn.textContent = '⏳';
+    const text = await Voice.transcribe(bytes);
+    btn.textContent = '🎤';
+    el.input.value = (el.input.value ? `${el.input.value} ` : '') + text;
+    autosize();
+    schedulePreview();
+    el.input.focus();
+  } catch (err) {
+    recording = null;
+    btn.textContent = '🎤';
+    btn.classList.remove('rec');
+    toast(`Voz: ${err.message}`, 'error');
+  }
 });
 
 function alertInline(text) {
@@ -434,6 +469,44 @@ el.fullAccess.addEventListener('change', () => {
 });
 
 central.onFocusInput(() => el.input.focus());
+central.onChatOpen((id) => {
+  if (typeof setView === 'function') setView('chat');
+  openChat(id);
+});
+central.onChatsChanged(({ openId } = {}) => {
+  refreshList();
+  if (openId) {
+    if (typeof setView === 'function') setView('chat');
+    openChat(openId);
+  }
+});
+
+// Usado por outras telas: abre uma conversa nova com um texto pronto (e a pasta certa).
+async function newChatWithPrompt(text, { cwd, send = false, override } = {}) {
+  if (typeof setView === 'function') setView('chat');
+  state.chatId = null;
+  state.chat = null;
+  state.live = null;
+  renderMessages();
+  updateSendButton();
+  if (cwd) {
+    if (![...el.cwd.options].some((o) => o.value === cwd)) {
+      const o = document.createElement('option');
+      o.value = cwd;
+      o.textContent = cwd;
+      el.cwd.insertBefore(o, el.cwd.lastElementChild);
+    }
+    el.cwd.value = cwd;
+  }
+  if (override) el.model.value = override;
+  el.input.value = text;
+  autosize();
+  schedulePreview();
+  el.input.focus();
+  el.input.setSelectionRange(text.length, text.length);
+  refreshList();
+  if (send) await sendMessage();
+}
 
 // ---------- Início ----------
 (async function init() {

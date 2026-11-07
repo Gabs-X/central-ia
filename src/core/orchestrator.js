@@ -1,7 +1,7 @@
 // Orquestrador: recebe um pedido, escolhe a rota, chama o provedor e
 // mantém o contexto quando a conversa alterna entre Claude e Codex.
 const crypto = require('crypto');
-const { route } = require('./router');
+const { route, classify, learnPreferences } = require('./router');
 const { runClaude } = require('./providers/claude');
 const { runCodex } = require('./providers/codex');
 
@@ -25,8 +25,9 @@ function clip(text, max) {
 }
 
 class Orchestrator {
-  constructor({ chatsStore, usage, getConfig, emit }) {
+  constructor({ chatsStore, prefsStore, usage, getConfig, emit }) {
     this.chats = chatsStore; // JsonStore { chats: [] }
+    this.prefs = prefsStore; // JsonStore { overrides: [] }
     this.usage = usage;
     this.getConfig = getConfig;
     this.emit = emit; // (channel, payload) => void
@@ -43,11 +44,11 @@ class Orchestrator {
     return this.chats.data.chats.find((c) => c.id === id) || null;
   }
 
-  create(cwd) {
+  create(cwd, title) {
     const config = this.getConfig();
     const chat = {
       id: crypto.randomUUID(),
-      title: 'Nova conversa',
+      title: title || 'Nova conversa',
       cwd: cwd || config.defaultCwd,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -77,8 +78,30 @@ class Orchestrator {
     this.running.get(id)?.abort();
   }
 
+  // Preferências aprendidas com as suas trocas manuais de modelo.
+  learned() {
+    const config = this.getConfig();
+    if (!config.learning?.enabled || !this.prefs) return {};
+    return learnPreferences(this.prefs.data.overrides || [], config.learning.minVotes);
+  }
+
+  #remember(text, hasImage, override) {
+    if (!this.prefs || !override || override === 'auto') return;
+    const { category } = classify(text, { hasImage });
+    const list = (this.prefs.data.overrides ||= []);
+    list.push({ category, choice: override, at: Date.now() });
+    if (list.length > 300) list.splice(0, list.length - 300);
+    this.prefs.save();
+  }
+
+  forgetLearning() {
+    if (!this.prefs) return;
+    this.prefs.data.overrides = [];
+    this.prefs.save();
+  }
+
   preview(prompt, { hasImage, override }) {
-    return route(prompt, { hasImage, override, usage: this.usage.limits(), config: this.getConfig() });
+    return route(prompt, { hasImage, override, usage: this.usage.limits(), config: this.getConfig(), learned: this.learned() });
   }
 
   // Monta o contexto que o provedor ainda não viu.
@@ -100,13 +123,14 @@ class Orchestrator {
     return `[Contexto anterior desta conversa, respondido por outra IA da central]\n${out.join('\n\n')}\n[Fim do contexto]\n\n`;
   }
 
-  async send(chatId, { text, images = [], override = 'auto', permissionMode }) {
+  async send(chatId, { text, images = [], override = 'auto', permissionMode, source = 'chat' }) {
     const config = this.getConfig();
     const chat = this.get(chatId);
     if (!chat) throw new Error('Conversa não encontrada');
     if (this.running.has(chatId)) throw new Error('Já existe uma tarefa rodando nesta conversa');
 
-    const decision = route(text, { hasImage: images.length > 0, override, usage: this.usage.limits(), config });
+    const decision = route(text, { hasImage: images.length > 0, override, usage: this.usage.limits(), config, learned: this.learned() });
+    if (source === 'chat') this.#remember(text, images.length > 0, override);
 
     chat.messages.push({ role: 'user', text, images, at: Date.now() });
     if (chat.title === 'Nova conversa') chat.title = clip(text.replace(/\s+/g, ' '), 48);
@@ -185,11 +209,11 @@ class Orchestrator {
     this.chats.save();
 
     if (result.tokens && (result.tokens.input || result.tokens.output)) {
-      this.usage.record(decision.provider, assistant.model, result.tokens);
+      this.usage.record(decision.provider, assistant.model, result.tokens, source);
     }
     if (decision.provider === 'codex') this.usage.refreshCodexLimits();
     this.emit('usage:update', this.usage.summary());
-    this.emit('chat:done', { chatId, message: assistant });
+    this.emit('chat:done', { chatId, message: assistant, source });
     return assistant;
   }
 }

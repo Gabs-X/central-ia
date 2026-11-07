@@ -27,8 +27,13 @@ class UsageTracker {
     return this.store.data.days[key];
   }
 
-  record(provider, model, { input = 0, cached = 0, output = 0, costUsd = 0 } = {}) {
-    const p = this.day()[provider];
+  record(provider, model, { input = 0, cached = 0, output = 0, costUsd = 0 } = {}, feature = 'chat') {
+    const day = this.day();
+    const f = ((day.byFeature ||= {})[feature] ||= { calls: 0, tokens: 0, claude: 0, codex: 0 });
+    f.calls += 1;
+    f.tokens += input + cached + output;
+    f[provider] += input + cached + output;
+    const p = day[provider];
     p.calls += 1;
     p.input += input;
     p.cached += cached;
@@ -100,8 +105,20 @@ class UsageTracker {
 
   summary() {
     const days = this.store.data.days;
-    const keys = Object.keys(days).sort().slice(-7);
-    return { today: this.day(), last7: keys.map((k) => ({ date: k, ...days[k] })), limits: this.limits() };
+    this.day(); // garante o dia de hoje
+    const keys = Object.keys(days).sort().slice(-30);
+    return { today: this.day(), days: keys.map((k) => ({ date: k, ...days[k] })), limits: this.limits(), history: this.store.data.history || [] };
+  }
+
+  // Guarda um ponto da cota a cada 15 min para o gráfico de evolução.
+  sampleLimits() {
+    const l = this.limits();
+    const h = (this.store.data.history ||= []);
+    const last = h[h.length - 1];
+    if (last && Date.now() - last.t < 14 * 60_000) return;
+    h.push({ t: Date.now(), c5: l.claude?.fiveHour ?? null, c7: l.claude?.weekly ?? null, x5: l.codex?.fiveHour ?? null, x7: l.codex?.weekly ?? null });
+    while (h.length > 4 * 24 * 14) h.shift(); // 14 dias
+    this.store.save();
   }
 }
 
