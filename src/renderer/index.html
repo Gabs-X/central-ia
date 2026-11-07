@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: file:; style-src 'self'; script-src 'self'" />
+  <title>Central IA</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">
+      <img src="../assets/icon.png" alt="" />
+      <span>Central IA</span>
+    </div>
+    <button id="new-chat" class="btn primary wide">+ Nova conversa</button>
+    <nav id="chat-list" class="chat-list"></nav>
+
+    <section class="usage" id="usage">
+      <h3>Cota das assinaturas</h3>
+      <div class="meter" data-key="claude-5h"><label>Claude · 5h <b></b></label><div class="bar"><i></i></div><small></small></div>
+      <div class="meter" data-key="claude-7d"><label>Claude · semana <b></b></label><div class="bar"><i></i></div><small></small></div>
+      <div class="meter" data-key="codex-5h"><label>Codex · 5h <b></b></label><div class="bar"><i></i></div><small></small></div>
+      <div class="meter" data-key="codex-7d"><label>Codex · semana <b></b></label><div class="bar"><i></i></div><small></small></div>
+      <div class="today" id="usage-today"></div>
+    </section>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <h1 id="chat-title">Nova conversa</h1>
+      <div class="top-actions">
+        <select id="cwd-select" title="Pasta onde a IA trabalha"></select>
+        <label class="toggle" title="Seguro: o Claude decide o que pode rodar sozinho e o Codex só escreve na pasta atual. Total: sem travas.">
+          <input type="checkbox" id="full-access" />
+          <span>Acesso total</span>
+        </label>
+        <label class="toggle" title="Ler respostas em voz alta">
+          <input type="checkbox" id="speak-replies" />
+          <span>Voz</span>
+        </label>
+      </div>
+    </header>
+
+    <section id="messages" class="messages">
+      <div class="empty" id="empty">
+        <h2>O que vamos fazer?</h2>
+        <p>Peça qualquer coisa: abrir programas, mexer nos seus repositórios, pesquisar na web, analisar a tela.
+          A central escolhe sozinha a IA e o modelo mais adequados e economiza a cota.</p>
+        <div class="suggestions">
+          <button class="chip" data-s="Abra o VS Code na pasta do taverna-bot">Abrir o VS Code no taverna-bot</button>
+          <button class="chip" data-s="Quanto espaço livre eu tenho em cada disco?">Espaço livre nos discos</button>
+          <button class="chip" data-s="Pesquise as últimas novidades do Electron">Novidades do Electron</button>
+          <button class="chip" data-s="Revise o código desta pasta e aponte bugs">Revisar o código da pasta</button>
+        </div>
+      </div>
+    </section>
+
+    <footer class="composer">
+      <div id="attachments" class="attachments"></div>
+      <div class="input-row">
+        <textarea id="input" rows="1" placeholder="Pergunte ou peça algo… (Enter envia, Shift+Enter quebra linha)"></textarea>
+      </div>
+      <div class="composer-bar">
+        <div class="left">
+          <button class="icon-btn" id="btn-screen" title="Anexar captura da tela">🖥️</button>
+          <button class="icon-btn" id="btn-image" title="Anexar imagem">🖼️</button>
+          <button class="icon-btn" id="btn-voice" title="Ditar por voz (Win+H)">🎤</button>
+          <span id="route-badge" class="route-badge" hidden></span>
+        </div>
+        <div class="right">
+          <select id="model-select" title="Modelo">
+            <option value="auto">Automático</option>
+            <option value="claude:rapido">Claude Haiku</option>
+            <option value="claude:equilibrado">Claude Sonnet</option>
+            <option value="claude:profundo">Claude Opus</option>
+            <option value="codex:medium">Codex</option>
+            <option value="codex:high">Codex (raciocínio alto)</option>
+          </select>
+          <button id="send" class="btn primary">Enviar</button>
+        </div>
+      </div>
+    </footer>
+  </main>
+
+  <script src="markdown.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

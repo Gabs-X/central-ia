@@ -1,0 +1,181 @@
+// Roteador: decide qual IA (Claude ou Codex), qual modelo e qual esforço usar
+// para cada pedido. É 100% local (heurística), então não gasta token para decidir.
+
+const CATEGORIES = {
+  rapida: {
+    label: 'Pergunta rápida',
+    target: { provider: 'claude', tier: 'rapido', effort: 'low' },
+  },
+  sistema: {
+    label: 'Comando no Windows',
+    target: { provider: 'claude', tier: 'equilibrado', effort: 'low' },
+  },
+  codigo: {
+    label: 'Código',
+    target: { provider: 'codex', effort: 'medium' },
+  },
+  codigo_complexo: {
+    label: 'Código complexo / arquitetura',
+    target: { provider: 'claude', tier: 'profundo', effort: 'high' },
+  },
+  pesquisa: {
+    label: 'Pesquisa na web',
+    target: { provider: 'claude', tier: 'equilibrado', effort: 'medium' },
+  },
+  escrita: {
+    label: 'Escrita / texto',
+    target: { provider: 'claude', tier: 'equilibrado', effort: 'medium' },
+  },
+  raciocinio: {
+    label: 'Planejamento / análise',
+    target: { provider: 'claude', tier: 'profundo', effort: 'high' },
+  },
+  visao: {
+    label: 'Imagem / tela',
+    target: { provider: 'claude', tier: 'equilibrado', effort: 'medium' },
+  },
+};
+
+// Palavras-chave por categoria (sem acento; o texto é normalizado antes).
+const KEYWORDS = {
+  sistema: [
+    'abre', 'abrir', 'abra', 'fecha', 'fechar', 'feche', 'executa', 'executar', 'execute', 'rode', 'rodar',
+    'powershell', 'cmd', 'terminal', 'instala', 'instalar', 'instale', 'desinstal', 'processo', 'pasta',
+    'diretorio', 'mover', 'mova', 'copiar', 'copie', 'renomear', 'renomeie', 'apagar', 'apague', 'deletar',
+    'espaco em disco', 'wifi', 'volume', 'desligar', 'reiniciar', 'programa', 'aplicativo', 'app ',
+    'area de trabalho', 'downloads', 'notepad', 'explorer', 'spotify', 'discord', 'obs', 'vscode',
+  ],
+  codigo: [
+    'codigo', 'funcao', 'bug', 'erro', 'corrige', 'corrija', 'corrigir', 'implementa', 'implemente',
+    'implementar', 'refatora', 'refatore', 'teste', 'testes', 'commit', 'branch', 'git ', 'repositorio',
+    'repo', 'componente', 'endpoint', 'api', 'script', 'typescript', 'javascript', 'python', 'react',
+    'node', 'npm', 'css', 'html', 'sql', 'banco de dados', 'deploy', 'build', 'compila', 'lint', 'classe',
+    'metodo', 'variavel', 'stack trace', 'exception', 'pull request', ' pr ',
+  ],
+  complexo: [
+    'arquitetura', 'projeto inteiro', 'todo o projeto', 'do zero', 'sistema completo', 'migrar', 'migracao',
+    'reescrever', 'reescreva', 'escalabilidade', 'seguranca', 'auditoria', 'performance', 'otimiza',
+    'dificil', 'complexo', 'investigue', 'investigar', 'causa raiz',
+  ],
+  pesquisa: [
+    'pesquisa', 'pesquise', 'pesquisar', 'busca na internet', 'procure na internet', 'procura na web',
+    'noticia', 'noticias', 'preco', 'cotacao', 'hoje', 'atual', 'ultimas', 'site', 'google', 'web',
+    'link', 'documentacao oficial', 'navegador', 'chrome',
+  ],
+  escrita: [
+    'escreva', 'escreve', 'redija', 'redigir', 'email', 'e-mail', 'mensagem', 'post', 'legenda', 'texto',
+    'resuma', 'resumo', 'traduza', 'traducao', 'revise', 'reescreva o texto', 'carta', 'proposta', 'roteiro',
+  ],
+  raciocinio: [
+    'planeje', 'planejar', 'plano', 'estrategia', 'compare', 'comparar', 'analise', 'analisar', 'decida',
+    'decidir', 'pros e contras', 'vale a pena', 'qual o melhor', 'recomende', 'avalie',
+  ],
+};
+
+function normalize(text) {
+  return ` ${String(text || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/\s+/g, ' ')} `;
+}
+
+function countHits(text, words) {
+  let hits = 0;
+  for (const w of words) if (text.includes(w)) hits++;
+  return hits;
+}
+
+function classify(prompt, { hasImage = false } = {}) {
+  const text = normalize(prompt);
+  const words = text.trim().split(' ').filter(Boolean).length;
+
+  if (hasImage) return { category: 'visao', scores: {} };
+
+  const scores = {
+    sistema: countHits(text, KEYWORDS.sistema) * 1.2,
+    codigo: countHits(text, KEYWORDS.codigo) * 1.5,
+    pesquisa: countHits(text, KEYWORDS.pesquisa) * 1.3,
+    escrita: countHits(text, KEYWORDS.escrita),
+    raciocinio: countHits(text, KEYWORDS.raciocinio),
+  };
+  const complexo = countHits(text, KEYWORDS.complexo);
+
+  // Pedidos longos tendem a ser mais complexos.
+  if (words > 120) scores.raciocinio += 1;
+
+  const [best, bestScore] = Object.entries(scores).sort((a, b) => b[1] - a[1])[0];
+
+  if (bestScore === 0) {
+    return { category: words <= 40 ? 'rapida' : 'raciocinio', scores };
+  }
+  if (best === 'codigo' && (complexo >= 1 || words > 150)) {
+    return { category: 'codigo_complexo', scores };
+  }
+  if (best === 'raciocinio' && complexo === 0 && bestScore <= 1 && words <= 15) {
+    // "qual o melhor X?" curto não precisa de Opus.
+    return { category: 'escrita', scores };
+  }
+  return { category: best, scores };
+}
+
+// Retorna o maior uso (0..1) entre as janelas conhecidas de um provedor.
+function maxUtil(usage) {
+  if (!usage) return 0;
+  return Math.max(usage.fiveHour ?? 0, usage.weekly ?? 0);
+}
+
+/**
+ * Decide a rota final.
+ * @param {string} prompt
+ * @param {object} opts { hasImage, override, usage: { claude, codex }, config }
+ */
+function route(prompt, opts = {}) {
+  const { hasImage = false, override = 'auto', usage = {}, config } = opts;
+  const models = config.claude.models;
+  const reasons = [];
+
+  // Escolha manual na interface.
+  if (override && override !== 'auto') {
+    const [provider, tier] = override.split(':');
+    if (provider === 'codex') {
+      return { provider: 'codex', model: config.codex.model || 'padrão', effort: tier || 'medium', category: 'manual', label: 'Escolha manual', reasons: ['escolhido manualmente'] };
+    }
+    return { provider: 'claude', model: models[tier] || tier, tier, effort: tier === 'profundo' ? 'high' : 'medium', category: 'manual', label: 'Escolha manual', reasons: ['escolhido manualmente'] };
+  }
+
+  const { category } = classify(prompt, { hasImage });
+  const cat = CATEGORIES[category];
+  let { provider, tier, effort } = { ...cat.target };
+  reasons.push(`categoria: ${cat.label}`);
+
+  const claudeUtil = maxUtil(usage.claude);
+  const codexUtil = maxUtil(usage.codex);
+  const claudeBlocked = usage.claude?.status === 'rejected';
+  const codexBlocked = codexUtil >= 0.99;
+  const q = config.quota;
+
+  // O Codex também executa comandos e aceita imagem (-i), então serve de reserva para tudo.
+  if (provider === 'claude') {
+    if ((claudeBlocked || claudeUtil >= q.claudeAvoidAt) && !codexBlocked && codexUtil < q.codexAvoidAt) {
+      provider = 'codex';
+      reasons.push(`cota do Claude em ${Math.round(claudeUtil * 100)}%: enviado ao Codex`);
+    } else if (tier === 'profundo' && claudeUtil >= q.claudeDowngradeAt) {
+      tier = 'equilibrado';
+      reasons.push(`cota do Claude em ${Math.round(claudeUtil * 100)}%: Opus trocado por Sonnet`);
+    }
+  } else if (provider === 'codex') {
+    if ((codexBlocked || codexUtil >= q.codexAvoidAt) && !claudeBlocked && claudeUtil < q.claudeAvoidAt) {
+      provider = 'claude';
+      tier = 'equilibrado';
+      reasons.push(`cota do Codex em ${Math.round(codexUtil * 100)}%: enviado ao Claude`);
+    }
+  }
+
+  if (provider === 'codex') {
+    return { provider, model: config.codex.model || 'padrão', effort, category, label: cat.label, reasons };
+  }
+  return { provider, tier, model: models[tier], effort, category, label: cat.label, reasons };
+}
+
+module.exports = { route, classify, CATEGORIES, normalize };
