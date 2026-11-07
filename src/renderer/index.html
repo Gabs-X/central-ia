@@ -16,7 +16,7 @@
     <nav class="tabs" aria-label="Seções">
       <button class="tab" data-view="today">☀️<span>Hoje</span><b id="badge-today" class="badge" hidden></b></button>
       <button class="tab active" data-view="chat">💬<span>Conversas</span></button>
-      <button class="tab" data-view="meetings">📋<span>Reuniões</span><b id="tab-badge" class="badge" hidden></b></button>
+      <button class="tab" data-view="meetings">📋<span>Demandas e reuniões</span><b id="tab-badge" class="badge" hidden></b></button>
       <button class="tab" data-view="auto">⚡<span>Automações</span></button>
       <button class="tab" data-view="usage">📊<span>Uso</span></button>
       <button class="tab" data-view="settings">⚙️<span>Ajustes</span></button>
@@ -26,10 +26,11 @@
       <nav id="chat-list" class="chat-list"></nav>
     </div>
     <div class="side-meetings" hidden>
-      <div class="seg">
-        <button id="open-board" class="active">Painel</button>
-        <button id="open-people">Pessoas</button>
+      <div class="seg meeting-nav" aria-label="Navegação de demandas">
+        <button id="open-board" class="active" aria-pressed="true"><b>Minhas demandas</b><small>O que preciso fazer</small></button>
+        <button id="open-people" aria-pressed="false"><b>Por pessoa</b><small>Pedidos e combinados da equipe</small></button>
       </div>
+      <h2 class="meeting-list-title">Histórico de reuniões</h2>
       <nav id="meeting-list" class="chat-list"></nav>
     </div>
     <div class="side-spacer"></div>
@@ -58,15 +59,15 @@
 
   <main class="main" id="view-meetings" hidden>
     <header class="topbar">
-      <h1 id="mt-title">Painel de demandas</h1>
+      <h1 id="mt-title">Minhas demandas</h1>
       <div class="top-actions">
         <span id="mt-status" class="muted small"></span>
-        <button id="mt-scan" class="btn small-btn" title="Procurar transcripts novos agora">Verificar agora</button>
+        <button id="mt-scan" class="btn small-btn" title="Procurar novas transcrições na pasta configurada">Buscar novas reuniões</button>
       </div>
     </header>
     <form class="search-bar" id="mt-search">
-      <input id="mt-q" placeholder="🔎 Pergunte sobre suas reuniões… ex.: “o que o Luender falou sobre o BPMN?”" autocomplete="off" />
-      <button class="btn primary small-btn">Perguntar</button>
+      <input id="mt-q" aria-label="Pergunta sobre suas reuniões" placeholder="🔎 Pergunte sobre suas reuniões… ex.: “o que o Luender falou sobre o BPMN?”" autocomplete="off" />
+      <button class="btn primary small-btn">Perguntar à IA</button>
     </form>
     <section class="mt-body" id="mt-body"></section>
   </main>

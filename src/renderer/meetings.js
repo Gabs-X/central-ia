@@ -54,8 +54,11 @@ function renderMeetingBadge() {
 }
 
 function setSeg(which) {
-  document.getElementById('open-board').classList.toggle('active', which === 'board');
-  document.getElementById('open-people').classList.toggle('active', which === 'people');
+  for (const [id, view] of [['open-board', 'board'], ['open-people', 'people']]) {
+    const button = document.getElementById(id);
+    button.classList.toggle('active', which === view);
+    button.setAttribute('aria-pressed', String(which === view));
+  }
 }
 
 document.getElementById('open-board').addEventListener('click', () => {
@@ -114,9 +117,12 @@ async function renderMeetings() {
 function renderMeetingList() {
   const nav = document.getElementById('meeting-list');
   nav.innerHTML = '';
+  if (!mt.data.meetings.length) nav.innerHTML = '<p class="muted small">As reuniões aparecerão aqui após a importação das transcrições.</p>';
   for (const m of mt.data.meetings) {
     const open = mt.data.tasks.filter((t) => t.meetingKey === m.key && t.status !== 'done').length;
-    const item = document.createElement('div');
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.setAttribute('aria-current', String(mt.view === m.key));
     item.className = `chat-item meeting-item${mt.view === m.key ? ' active' : ''}${m.status === 'ignorada' ? ' dim' : ''}`;
     const st = STATUS_LABEL[m.status] ?? m.status;
     item.innerHTML = `<div class="mi-main"><span>${esc(m.title || m.code)}</span><small>${brDate(m.isoDate)} ${m.start ? m.start.slice(0, 5) : ''}${m.durationMin ? ` · ${m.durationMin} min` : ''}${st ? ` · ${esc(st)}` : ''}</small></div>${open ? `<b class="badge">${open}</b>` : ''}`;
@@ -136,7 +142,7 @@ function sortTasks(list) {
 }
 
 function renderBoard() {
-  document.getElementById('mt-title').textContent = 'Painel de demandas';
+  document.getElementById('mt-title').textContent = 'Minhas demandas';
   const body = document.getElementById('mt-body');
   const tasks = sortTasks(mt.data.tasks);
   const weekAgo = Date.now() - 7 * 864e5;
@@ -146,11 +152,12 @@ function renderBoard() {
   waitingShown.sort((a, b) => (a.deadline || '9999').localeCompare(b.deadline || '9999'));
 
   body.innerHTML = `
+    <p class="muted hint">Acompanhe suas demandas e os retornos de outras pessoas. Use os botões dos cartões para atualizar cada etapa.</p>
     <form class="add-task" id="add-task">
-      <input id="add-text" placeholder="Adicionar demanda manualmente…" autocomplete="off" />
-      <input id="add-date" type="date" title="Prazo" />
-      <select id="add-prio"><option value="media">média</option><option value="alta">alta</option><option value="baixa">baixa</option></select>
-      <button class="btn primary">Adicionar</button>
+      <label class="task-description">Nova demanda<input id="add-text" placeholder="O que você precisa fazer?" autocomplete="off" required /></label>
+      <label>Prazo (opcional)<input id="add-date" type="date" /></label>
+      <label>Prioridade<select id="add-prio"><option value="media">Média</option><option value="alta">Alta</option><option value="baixa">Baixa</option></select></label>
+      <button class="btn primary" type="submit">+ Adicionar demanda</button>
     </form>
     <div class="board four">${COLS.map((c) => {
       let list = tasks.filter((t) => t.status === c.id);
@@ -196,7 +203,7 @@ function cardHtml(t) {
   const m = t.meetingKey ? meetingByKey(t.meetingKey) : null;
   const dl = t.status !== 'done' ? deadlineInfo(t.deadline) : null;
   const next = t.status === 'todo' ? 'doing' : t.status === 'doing' ? 'done' : 'todo';
-  const nextLabel = { doing: '▶ Começar', done: '✓ Concluir', todo: '↺ Reabrir' }[next];
+  const nextLabel = { doing: 'Iniciar demanda', done: 'Marcar como concluída', todo: 'Reabrir demanda' }[next];
   const origin = m
     ? `<button class="origin" data-meeting="${m.key}">↳ ${esc(m.title || m.code)} · ${brDate(m.isoDate)}</button>`
     : t.source === 'slack' && t.link
@@ -212,9 +219,10 @@ function cardHtml(t) {
     ${origin}
     ${t.evidence ? `<details class="evidence"><summary>trecho</summary>“${esc(t.evidence)}”</details>` : ''}
     <div class="card-actions">
-      <button data-act="move" data-to="${next}">${nextLabel}</button>
-      ${t.status !== 'done' ? '<button data-act="ai" title="Abrir uma conversa com a IA para resolver">🤖 Resolver</button>' : ''}
-      <button data-act="del" class="danger" title="Apagar">✕</button>
+      <button class="task-primary" data-act="move" data-to="${next}">${nextLabel}</button>
+      ${t.status !== 'done' ? '<button data-act="ai" title="Abrir uma conversa com a IA para resolver">Pedir ajuda à IA</button>' : ''}
+      <button data-act="edit" title="Editar texto, prazo e prioridade">Editar</button>
+      <button data-act="del" class="danger" title="Excluir demanda">Excluir</button>
     </div>
   </div>`;
 }
@@ -227,9 +235,9 @@ function waitingHtml(w) {
     <div class="card-meta">${dl ? `<span class="due ${dl.cls}">📅 ${esc(dl.text)}</span>` : '<span>sem prazo</span>'}${w.lastNudgedAt ? `<span>cobrado ${relTime(w.lastNudgedAt)}</span>` : ''}</div>
     ${m ? `<button class="origin" data-meeting="${m.key}">↳ ${esc(m.title || m.code)} · ${brDate(m.isoDate)}</button>` : ''}
     <div class="card-actions">
-      <button data-wact="nudge">💬 Cobrar</button>
-      <button data-wact="done">✓ Recebi</button>
-      <button data-wact="del" class="danger" title="Apagar">✕</button>
+      <button data-wact="nudge" title="Preparar mensagem para revisar">Preparar cobrança</button>
+      <button data-wact="done" class="task-primary">Marcar como recebido</button>
+      <button data-wact="del" class="danger" title="Excluir combinado">Excluir</button>
     </div>
   </div>`;
 }
@@ -242,8 +250,9 @@ function bindCards(root) {
       card.classList.add('dragging');
     });
     card.addEventListener('dragend', () => card.classList.remove('dragging'));
-    card.querySelector('[data-act=move]')?.addEventListener('click', (e) => central.updateTask(id, { status: e.target.dataset.to }));
-    card.querySelector('[data-act=del]')?.addEventListener('click', () => central.deleteTask(id));
+    card.querySelector('[data-act=move]')?.addEventListener('click', (e) => central.updateTask(id, { status: e.currentTarget.dataset.to }));
+    card.querySelector('[data-act=edit]')?.addEventListener('click', () => editTask(id));
+    card.querySelector('[data-act=del]')?.addEventListener('click', () => confirmCardDelete('task', id));
     card.querySelector('[data-act=ai]')?.addEventListener('click', () => solveWithAI(mt.data.tasks.find((t) => t.id === id)));
     const txt = card.querySelector('.card-text');
     txt.addEventListener('dblclick', () => {
@@ -267,7 +276,7 @@ function bindCards(root) {
     const id = card.dataset.wid;
     card.querySelector('[data-wact=nudge]').addEventListener('click', () => nudge(id));
     card.querySelector('[data-wact=done]').addEventListener('click', () => central.updateWaiting(id, { status: 'done' }));
-    card.querySelector('[data-wact=del]').addEventListener('click', () => central.deleteWaiting(id));
+    card.querySelector('[data-wact=del]').addEventListener('click', () => confirmCardDelete('waiting', id));
   });
   root.querySelectorAll('.origin').forEach((b) =>
     b.addEventListener('click', (e) => {
@@ -429,11 +438,11 @@ function renderMeetingDetail(m) {
       ${m.model ? `<span class="tag ${m.provider}">${esc(m.model)}</span>` : ''}
       ${m.tokens ? `<span class="muted small">${Math.round(((m.tokens.input || 0) + (m.tokens.cached || 0)) / 1000)}k tokens</span>` : ''}
       <span class="spacer"></span>
-      ${s ? `<button class="btn small-btn" id="d-copy" title="Copiar resumo em Markdown">Copiar</button>
+      ${s ? `<button class="btn small-btn" id="d-copy" title="Copiar resumo em Markdown">Copiar resumo</button>
       <button class="btn small-btn" id="d-save" title="Salvar .md na sua pasta do Claude">Salvar .md</button>
-      <button class="btn small-btn" id="d-mail" title="Abrir e-mail com o resumo">E-mail</button>` : ''}
-      <button class="btn small-btn" id="d-files">Transcript</button>
-      <button class="btn small-btn" id="d-reprocess">${m.status === 'ignorada' ? 'Processar mesmo assim' : 'Reprocessar'}</button>
+      <button class="btn small-btn" id="d-mail" title="Abrir e-mail com o resumo">Enviar resumo por e-mail</button>` : ''}
+      <button class="btn small-btn" id="d-files">Abrir transcrição</button>
+      <button class="btn small-btn" id="d-reprocess">${m.status === 'ignorada' ? 'Processar mesmo assim' : 'Analisar novamente'}</button>
     </div>
     ${m.participants?.length ? `<p class="muted small">Participantes: ${esc(m.participants.join(', '))}</p>` : ''}
     ${m.status !== 'pronta' && m.status !== 'sem demandas' ? `<p class="notice">Status: ${esc(m.status)}${m.reason ? ` — ${esc(m.reason)}` : ''}${m.retryAt ? ` · nova tentativa ${new Date(m.retryAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : ''}</p>` : ''}
@@ -472,3 +481,41 @@ function renderMeetingDetail(m) {
   mt.data = await central.getMeetings();
   renderMeetingBadge();
 })();
+
+// Edição explícita de texto, prazo e prioridade.
+function editTask(id) {
+  const task = mt.data.tasks.find((t) => t.id === id);
+  if (!task) return;
+  const card = openModal(`<h2>Editar demanda</h2>
+    <form class="form" id="edit-task-form">
+      <label>Descrição<textarea name="text" rows="3" required>${esc(task.text)}</textarea></label>
+      <label>Prazo (opcional)<input name="deadline" type="date" value="${esc(task.deadline || '')}" /></label>
+      <label>Prioridade<select name="priority">${['baixa', 'media', 'alta'].map((p) => `<option value="${p}" ${p === task.priority ? 'selected' : ''}>${{ baixa: 'Baixa', media: 'Média', alta: 'Alta' }[p]}</option>`).join('')}</select></label>
+      <div class="modal-actions"><button type="button" class="btn" data-close>Cancelar</button><button class="btn primary" type="submit">Salvar alterações</button></div>
+    </form>`);
+  card.querySelector('form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const text = form.elements.text.value.trim();
+    if (!text) return;
+    const result = await central.updateTask(id, { text, deadline: form.elements.deadline.value || null, priority: form.elements.priority.value });
+    if (result?.ok === false) return toast(result.error, 'error');
+    closeModal();
+    toast('Demanda atualizada.');
+  });
+}
+
+function confirmCardDelete(kind, id) {
+  const item = (kind === 'task' ? mt.data.tasks : mt.data.waiting).find((x) => x.id === id);
+  if (!item) return;
+  const label = kind === 'task' ? 'demanda' : 'combinado';
+  const card = openModal(`<h2>Excluir ${label}?</h2><p>${esc(item.text)}</p>
+    <p class="muted small">Esta ação não pode ser desfeita.</p>
+    <div class="modal-actions"><button class="btn" data-close>Cancelar</button><button class="btn danger-btn" id="confirm-delete">Excluir ${label}</button></div>`);
+  card.querySelector('#confirm-delete').addEventListener('click', async () => {
+    const result = await (kind === 'task' ? central.deleteTask(id) : central.deleteWaiting(id));
+    if (result?.ok === false) return toast(result.error, 'error');
+    closeModal();
+    toast(kind === 'task' ? 'Demanda excluída.' : 'Combinado excluído.');
+  });
+}

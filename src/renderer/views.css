@@ -157,3 +157,32 @@ code { font-family: "Cascadia Code", Consolas, monospace; font-size: 12px; backg
 .legend i.line { height: 2px; width: 14px; border-radius: 2px; }
 .card-actions { flex-wrap: wrap; }
 .card-actions button { white-space: nowrap; }
+
+/* Ações de demandas e reuniões */
+.meeting-nav { grid-template-columns: 1fr; }
+.meeting-nav button { text-align: left; padding: 11px 12px; display: flex; flex-direction: column; gap: 4px; }
+.meeting-nav button small { color: var(--muted); font-size: 11px; font-weight: normal; }
+.meeting-nav button.active { background: color-mix(in srgb, var(--accent) 14%, var(--panel)); }
+.meeting-list-title { margin: 8px 0 0; font-size: 12px; color: var(--muted); font-weight: 600; }
+button.meeting-item { width: 100%; text-align: left; font: inherit; color: var(--text); background: transparent; border: 1px solid transparent; }
+button.meeting-item.active { background: var(--panel-2); border-color: var(--accent); }
+button.meeting-item:hover { background: var(--panel-2); }
+#mt-status { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#view-meetings .topbar { flex-wrap: wrap; }
+#view-meetings .top-actions { min-width: 0; flex-wrap: wrap; }
+.add-task { flex-wrap: wrap; align-items: flex-end; background: var(--panel); padding: 14px; border: 1px solid var(--border); border-radius: 12px; }
+.add-task label { display: flex; flex-direction: column; gap: 6px; color: var(--muted); font-size: 12px; }
+.add-task .task-description { flex: 1; min-width: 220px; }
+.add-task input, .add-task select { min-height: 36px; }
+.add-task select { font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; }
+.card-actions { gap: 8px; margin-top: 10px; }
+.card-actions button { min-height: 32px; padding: 6px 10px; font-size: 12px; }
+.card-actions button.task-primary { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 15%, var(--panel)); color: var(--text); }
+.card-actions button.danger { margin-left: 0; }
+.card-actions button:focus-visible, .meeting-nav button:focus-visible, .meeting-item:focus-visible, #view-meetings button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+@media (max-width: 800px) {
+  .board.four { grid-template-columns: 1fr; }
+  .add-task .task-description { flex-basis: 100%; min-width: 0; }
+  #view-meetings .search-bar { flex-wrap: wrap; }
+  #view-meetings .search-bar input { min-width: 0; }
+}
