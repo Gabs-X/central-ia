@@ -1,5 +1,31 @@
 // Provedor Claude: usa o Claude Code em modo headless (claude -p) com a sua assinatura.
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const { runJsonl, shorten } = require('./common');
+
+/**
+ * Pasta de login do Claude Code. O Gabriel usa a conta pessoal em ~/.claude-pessoal
+ * (o `claude` puro fica na conta da empresa). Vazio = detecta automaticamente.
+ */
+function claudeConfigDir(config) {
+  const dir = config.claude?.configDir;
+  if (dir) return dir.replace(/^~(?=$|[\\/])/, os.homedir());
+  const pessoal = path.join(os.homedir(), '.claude-pessoal');
+  return fs.existsSync(pessoal) ? pessoal : null;
+}
+
+function claudeEnv(config) {
+  const dir = claudeConfigDir(config);
+  return dir ? { CLAUDE_CONFIG_DIR: dir } : {};
+}
+
+function friendlyError(msg) {
+  if (/not logged in|please run \/login/i.test(msg || '')) {
+    return 'O Claude não está logado na pasta usada pela Central. Confira em Ajustes → Geral → "Pasta de login do Claude" (a conta pessoal fica em ~/.claude-pessoal).';
+  }
+  return msg;
+}
 
 function describeTool(name, input = {}) {
   const arg =
@@ -102,6 +128,7 @@ async function runClaude(o) {
   const { code, stderr, aborted } = await runJsonl({
     cmd: config.claude.bin,
     args,
+    env: claudeEnv(config),
     cwd: o.cwd,
     input: prompt,
     onJson,
@@ -111,6 +138,7 @@ async function runClaude(o) {
   if (aborted) state.error = 'Cancelado.';
   else if (code !== 0 && !state.text) state.error = state.error || shorten(stderr, 600) || `claude saiu com código ${code}`;
 
+  state.error = friendlyError(state.error);
   const u = state.usage || {};
   return {
     provider: 'claude',
@@ -127,4 +155,4 @@ async function runClaude(o) {
   };
 }
 
-module.exports = { runClaude };
+module.exports = { runClaude, claudeEnv, claudeConfigDir, friendlyError };

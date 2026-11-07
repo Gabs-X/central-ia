@@ -17,6 +17,7 @@ const DEFAULT_CONFIG = {
 
   claude: {
     bin: 'claude',
+    configDir: '', // pasta de login do Claude Code; vazio = ~/.claude-pessoal se existir
     // "auto" = o próprio Claude Code decide com classificador de segurança.
     // "bypassPermissions" = acesso total (ative no app só quando quiser).
     permissionMode: 'auto',

@@ -5,6 +5,7 @@ const os = require('os');
 const path = require('path');
 const { runJsonl, shorten } = require('./providers/common');
 const { resolveCodex } = require('./providers/codex');
+const { claudeEnv, friendlyError } = require('./providers/claude');
 
 class DeferError extends Error {
   constructor(retryAt, reason) {
@@ -64,6 +65,7 @@ async function claudeOnce({ prompt, schema, model, effort, config, usage, signal
   const { code, stderr } = await runJsonl({
     cmd: config.claude.bin,
     args,
+    env: claudeEnv(config),
     cwd: os.tmpdir(),
     input: prompt,
     signal,
@@ -79,7 +81,7 @@ async function claudeOnce({ prompt, schema, model, effort, config, usage, signal
       }
     },
   });
-  if (!out) throw new Error(error || shorten(stderr, 300) || `claude saiu com código ${code}`);
+  if (!out) throw new Error(friendlyError(error) || shorten(stderr, 300) || `claude saiu com código ${code}`);
   return {
     provider: 'claude',
     model: resolvedModel,
