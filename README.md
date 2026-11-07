@@ -91,3 +91,17 @@ src/
     system.js          voz (TTS), ditado, lista de repositórios
   renderer/            interface (HTML/CSS/JS puro)
 ```
+
+## Gerar o executável
+
+```powershell
+npm run dist
+```
+
+Isso gera, na pasta `dist\`:
+
+- `Central-IA-Setup-<versão>.exe`: instalador com atalho na área de trabalho e no menu Iniciar.
+- `Central-IA-Portatil-<versão>.exe`: roda direto, sem instalar.
+
+O ícone é aplicado pelo `build/after-pack.js` (rcedit), porque a assinatura do electron-builder exige permissão de link simbólico no Windows.
+Os executáveis não são assinados, então o SmartScreen pode avisar na primeira execução: clique em "Mais informações" e depois em "Executar assim mesmo".
