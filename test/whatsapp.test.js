@@ -102,3 +102,16 @@ test('escolhe o contato certo ou recusa quando é ambíguo', () => {
   assert.match(pickContact('Ana', ['Ana Paula', 'Ana Clara']).error, /Mais de um contato/);
   assert.match(pickContact('Zé', []).error, /Não achei/);
 });
+
+const { parseSendReply } = require('../src/integrations/whatsapp');
+
+test('entende a confirmação do envio por texto ou voz', () => {
+  for (const t of ['confirmado', 'Confirmado!', 'envie', 'envie a mensagem', 'pode enviar', 'Pode mandar agora, por favor', 'manda pra ela', 'envia pra Tata', 'confirma o envio no zap']) {
+    assert.equal(parseSendReply(t, ['Tata']), 'confirm', t);
+  }
+  for (const t of ['sim', 'ok', 'isso']) assert.equal(parseSendReply(t), 'yes', t);
+  for (const t of ['cancela', 'não envia', 'não, deixa', 'esquece essa mensagem']) assert.equal(parseSendReply(t), 'cancel', t);
+  for (const t of ['manda pro João no zap que vou atrasar', 'muda o texto antes', 'qual a previsão do tempo?', '', 'envia pro Pedro']) {
+    assert.equal(parseSendReply(t, ['Tata']), null, t);
+  }
+});

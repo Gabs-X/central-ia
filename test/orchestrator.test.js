@@ -152,3 +152,80 @@ test('a oferta vale só para a resposta seguinte', async () => {
   calls[2].finish();
   await p3;
 });
+
+async function draftChat(extra = {}) {
+  const sent = [];
+  const whatsappWeb = { send: async (to, text) => { sent.push({ to, text }); return { to: 'Tata Souza' }; } };
+  const { o, events } = setup({ whatsappWeb, ...extra });
+  const chat = o.create('C:\\tmp');
+  const p = o.send(chat.id, { text: 'envia mensagem pra Tata no meu WhatsApp se apresentando', runId: 'd1' });
+  await tick();
+  calls[0].answer = 'Preparei a mensagem.\n[[whatsapp para="Tata"]]\nOi! Aqui é a Ohara.\n[[/whatsapp]]';
+  calls[0].finish();
+  const draft = await p;
+  return { o, events, chat, draft, sent };
+}
+
+test('"confirmado" por texto envia o rascunho pendente sem outro clique e sem chamar a IA', async () => {
+  const { o, chat, draft, sent } = await draftChat();
+  const reply = await o.send(chat.id, { text: 'confirmado', runId: 'd2' });
+  assert.equal(calls.length, 1, 'a confirmação não passa pela IA');
+  assert.deepEqual(sent, [{ to: 'Tata', text: 'Oi! Aqui é a Ohara.' }]);
+  assert.equal(draft.whatsappDrafts[0].status, 'sent');
+  assert.equal(reply.provider, 'local');
+  assert.match(reply.text, /enviei a mensagem para Tata Souza/);
+
+  // Já enviado: um segundo "envia" não manda de novo, vai para a IA.
+  const p = o.send(chat.id, { text: 'envia', runId: 'd3' });
+  await tick();
+  assert.equal(calls.length, 2);
+  assert.equal(sent.length, 1);
+  calls[1].finish();
+  await p;
+});
+
+test('confirmação por voz também envia e a resposta é curta para falar', async () => {
+  const { o, chat, sent, events } = await draftChat();
+  const reply = await o.send(chat.id, { text: 'Pode enviar a mensagem.', source: 'voice', runId: 'v1' });
+  assert.equal(sent.length, 1);
+  assert.equal(reply.text, 'Pronto, enviei a mensagem para Tata Souza no WhatsApp.');
+  assert.ok(events.some(([ch, p]) => ch === 'chat:done' && p.runId === 'v1' && p.source === 'voice'));
+});
+
+test('"cancela" descarta o rascunho e um pedido novo segue para a IA', async () => {
+  const { o, chat, draft, sent } = await draftChat();
+  // Troca de IA de propósito: a outra só conhece o rascunho pelo contexto transferido.
+  const other = draft.provider === 'codex' ? 'claude:rapido' : 'codex';
+  const p = o.send(chat.id, { text: 'muda o texto pra ficar mais curto', override: other, runId: 'c1' });
+  await tick();
+  assert.equal(calls.length, 2, 'ajuste no texto vai para a IA');
+  assert.match(calls[1].opts.prompt, /Mensagem de WhatsApp para "Tata" \(aguardando confirmação\): Oi! Aqui é a Ohara\./, 'a IA vê o rascunho');
+  calls[1].answer = 'Encurtei.\n[[whatsapp para="Tata"]]\nOi, sou a Ohara!\n[[/whatsapp]]';
+  calls[1].finish();
+  const second = await p;
+  assert.equal(second.whatsappDrafts[0].status, 'pending', 'o rascunho vale mesmo sem citar o WhatsApp no pedido');
+
+  const reply = await o.send(chat.id, { text: 'não envia, cancela', runId: 'c2' });
+  assert.equal(second.whatsappDrafts[0].status, 'cancelled');
+  assert.equal(draft.whatsappDrafts[0].status, 'pending', 'só a última resposta conta');
+  assert.match(reply.text, /cancelei/);
+  assert.equal(sent.length, 0);
+});
+
+test('"sim" com oferta de melhoria aberta é para a melhoria, não para o envio', async () => {
+  const sent = [];
+  const whatsappWeb = { send: async (to, text) => { sent.push({ to, text }); return { to }; } };
+  const { o } = setup({ whatsappWeb });
+  const chat = o.create('C:\\tmp');
+  const p1 = o.send(chat.id, { text: 'manda pra Tata no zap um oi', runId: 's1' });
+  await tick();
+  calls[0].answer = 'Preparei.\n[[whatsapp para="Tata"]]\nOi!\n[[/whatsapp]]\nPosso aprender a enviar sozinha.\n[[melhoria: enviar sem confirmação]]';
+  calls[0].finish();
+  await p1;
+  const p2 = o.send(chat.id, { text: 'sim', runId: 's2' });
+  await tick();
+  assert.equal(sent.length, 0);
+  assert.equal(calls[1].opts.cwd, 'C:\\repositorios\\Projetos-Pessoais\\ohara');
+  calls[1].finish();
+  await p2;
+});

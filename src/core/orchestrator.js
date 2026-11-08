@@ -6,7 +6,7 @@ const { runClaude } = require('./providers/claude');
 const { runCodex } = require('./providers/codex');
 const path = require('path');
 const { listRepos } = require('./system');
-const { wantsWhatsApp, extractDrafts } = require('../integrations/whatsapp');
+const { wantsWhatsApp, extractDrafts, parseSendReply } = require('../integrations/whatsapp');
 const { parseQuickAction, runQuickAction } = require('./quick-actions');
 
 const WHATSAPP_NOTE = [
@@ -16,7 +16,7 @@ const WHATSAPP_NOTE = [
   '[[whatsapp para="Nome do contato como ele falou, ou número com DDI"]]',
   'texto da mensagem',
   '[[/whatsapp]]',
-  'Fora do bloco, diga em uma frase o que preparou. A Ohara mostra a mensagem para o Gabriel confirmar antes de enviar; nunca diga que já enviou.',
+  'Fora do bloco, diga em uma frase o que preparou. A Ohara mostra a mensagem e envia assim que o Gabriel confirmar (no botão Enviar ou respondendo "confirmado"/"envia", por texto ou voz); nunca diga que já enviou.',
 ].join('\n');
 
 const VOICE_NOTE =
@@ -29,6 +29,8 @@ const PARALLEL_NOTE =
   'Outra tarefa desta mesma conversa ainda está rodando em paralelo. Faça só o que este pedido pede e evite mexer nos mesmos arquivos que a outra tarefa sem necessidade.';
 
 const MAX_CONTEXT_CHARS = 9000;
+const DRAFT_STATUS = { pending: 'aguardando confirmação', sending: 'enviando', sent: 'enviada', error: 'falhou', cancelled: 'cancelada' };
+const DRAFT_TTL = 30 * 60_000; // "confirmado" vale para rascunhos de até 30 min atrás
 const MAX_MSG_CHARS = 1800;
 
 function systemPrompt(config, cwd) {
@@ -214,7 +216,9 @@ class Orchestrator {
     const out = [];
     let total = 0;
     for (const m of [...unseen].reverse()) {
-      const line = `${m.role === 'user' ? 'Gabriel' : `Assistente (${m.provider})`}: ${clip(m.text, MAX_MSG_CHARS)}`;
+      // O rascunho sai do texto; entra aqui para a IA saber o que está pronto (e não refazer à toa).
+      const drafts = (m.whatsappDrafts || []).map((d) => `\n[Mensagem de WhatsApp para "${d.to}" (${DRAFT_STATUS[d.status] || d.status}): ${clip(d.text, 600)}]`).join('');
+      const line = `${m.role === 'user' ? 'Gabriel' : `Assistente (${m.provider})`}: ${clip(m.text, MAX_MSG_CHARS)}${drafts}`;
       if (total + line.length > MAX_CONTEXT_CHARS) break;
       out.unshift(line);
       total += line.length;
@@ -228,6 +232,12 @@ class Orchestrator {
     const config = this.getConfig();
     const chat = this.get(chatId);
     if (!chat) throw new Error('Conversa não encontrada');
+
+    // Mensagem de WhatsApp pronta e ele respondeu "confirmado"/"envia"/"cancela": resolve na hora, sem IA.
+    if (!images.length && (!override || override === 'auto')) {
+      const reply = await this.#tryDraftReply(chat, text, clientRunId, source);
+      if (reply) return reply;
+    }
 
     // Ela se ofereceu para se alterar e ele aceitou: implementa no próprio repositório, com o modelo mais forte.
     const improvement = this.#acceptedImprovement(chat, text);
@@ -337,7 +347,9 @@ class Orchestrator {
     assistant.error = result.error || null;
     assistant.model = result.model || decision.model;
     assistant.tokens = result.tokens;
-    if (askWhatsApp && assistant.text && !assistant.error) await this.#handleWhatsApp(assistant);
+    // Rascunho para contato vale mesmo quando o pedido não citou o WhatsApp ("envie a mensagem").
+    const hasDraft = !!this.whatsappWeb && /\[\[whatsapp\s+para/i.test(assistant.text);
+    if ((askWhatsApp || hasDraft) && assistant.text && !assistant.error) await this.#handleWhatsApp(assistant, { toSelf: askWhatsApp });
 
     // Oferta de automelhoria: guarda para o próximo "sim" e tira a marcação do texto.
     const offer = assistant.text.match(IMPROVE_RE);
@@ -399,7 +411,7 @@ class Orchestrator {
   }
 
   // Contato → rascunho para confirmar; sem rascunho → a resposta vai para o próprio Gabriel.
-  async #handleWhatsApp(assistant) {
+  async #handleWhatsApp(assistant, { toSelf = true } = {}) {
     const { text, drafts } = extractDrafts(assistant.text);
     if (drafts.length) {
       assistant.text = text || 'Mensagem pronta para enviar:';
@@ -409,6 +421,7 @@ class Orchestrator {
       }
       return;
     }
+    if (!toSelf) return;
     if (!this.whatsapp?.configured) {
       assistant.whatsapp = { sent: false, error: 'WhatsApp não configurado: informe o número e a chave do CallMeBot em Ajustes.' };
       return;
@@ -429,7 +442,54 @@ class Orchestrator {
     return { chat, msg, draft };
   }
 
-  /** Envia um rascunho para o contato. Só é chamado pelo botão "Enviar" da interface. */
+  // Rascunhos ainda não enviados na última resposta dela (e de até DRAFT_TTL atrás).
+  #openDrafts(chat) {
+    const last = [...chat.messages].reverse().find((m) => m.role === 'assistant');
+    if (!last?.whatsappDrafts?.length || Date.now() - (last.at || 0) > DRAFT_TTL) return null;
+    const open = last.whatsappDrafts.map((d, i) => ({ d, i })).filter(({ d }) => d.status === 'pending' || d.status === 'error');
+    return open.length ? { msg: last, open } : null;
+  }
+
+  // "confirmado", "pode enviar", "envia pra Tata" → envia o rascunho pendente; "cancela" → descarta.
+  // A confirmação por texto ou voz vale como o clique em "Enviar".
+  async #tryDraftReply(chat, text, clientRunId, source) {
+    if (!this.whatsappWeb) return null;
+    const found = this.#openDrafts(chat);
+    if (!found) return null;
+    const intent = parseSendReply(text, found.open.map(({ d }) => d.to));
+    if (!intent) return null;
+    // "sim" sozinho com uma oferta de melhoria aberta: a pergunta era a melhoria, não o envio.
+    if (intent === 'yes' && chat.pendingImprovement && Date.now() - chat.pendingImprovement.at < 30 * 60_000) return null;
+    delete chat.pendingImprovement;
+
+    const lines = [];
+    if (intent === 'cancel') {
+      for (const { i } of found.open) this.cancelWhatsApp(chat.id, found.msg.id, i);
+      lines.push(found.open.length > 1 ? 'Beleza, cancelei as mensagens.' : `Beleza, cancelei a mensagem para ${found.open[0].d.to}.`);
+    } else {
+      for (const { d, i } of found.open) {
+        try {
+          const sent = await this.confirmWhatsApp(chat.id, found.msg.id, i);
+          lines.push(`Pronto, enviei a mensagem para ${sent.sentTo || d.to} no WhatsApp.`);
+        } catch (err) {
+          lines.push(`Não consegui enviar para ${d.to}: ${err.message}`);
+        }
+      }
+    }
+
+    const runId = clientRunId || crypto.randomUUID();
+    const route = { provider: 'local', model: 'ação local', category: 'local', label: 'WhatsApp', reasons: ['confirmação do envio, sem IA'] };
+    chat.messages.push({ role: 'user', text, images: [], at: Date.now() });
+    const assistant = { id: runId, role: 'assistant', text: lines.join('\n'), provider: 'local', model: 'ação local', route, tools: [], at: Date.now() };
+    chat.messages.push(assistant);
+    chat.updatedAt = Date.now();
+    this.chats.save();
+    this.emit('chat:route', { chatId: chat.id, runId, route });
+    this.emit('chat:done', { chatId: chat.id, runId, message: assistant, source, running: this.isRunning(chat.id) });
+    return assistant;
+  }
+
+  /** Envia um rascunho para o contato. Chamado pelo botão "Enviar" ou quando ele responde "confirmado"/"envia". */
   async confirmWhatsApp(chatId, messageId, index = 0) {
     const { chat, msg, draft } = this.#findDraft(chatId, messageId, index);
     if (draft.status === 'sent') return draft;

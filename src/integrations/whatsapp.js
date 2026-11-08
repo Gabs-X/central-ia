@@ -62,6 +62,32 @@ function extractDrafts(answer) {
   return { text, drafts };
 }
 
+// Resposta curta a um rascunho pendente: "confirmado", "pode enviar", "manda pra Tata" → 'confirm';
+// "sim"/"ok" sozinho → 'yes'; "cancela", "não envia" → 'cancel'.
+// Qualquer outra coisa (pedido novo, ajuste no texto) → null e segue para a IA.
+// names: destinatários dos rascunhos, para aceitar "envia pra Tata".
+const SEND_WORDS = new Set(['confirmado', 'confirmada', 'confirmo', 'confirma', 'confirmar', 'confirme', 'envia', 'envie', 'enviar', 'manda', 'mande', 'mandar', 'dispara', 'dispare']);
+const YES_WORDS = new Set(['sim', 's', 'ok', 'okay', 'isso', 'beleza', 'blz', 'bora', 'certo', 'perfeito', 'otimo', 'claro', 'show', 'fechado']);
+const CANCEL_WORDS = new Set(['cancela', 'cancele', 'cancelar', 'cancelado', 'cancelada', 'nao', 'esquece', 'esqueca', 'deixa', 'desiste']);
+const FILLER_WORDS = new Set([
+  'pode', 'vai', 'ja', 'agora', 'envio', 'logo', 'entao', 'ai', 'la', 'mesmo', 'tudo', 'bom', 'ta', 'e', 'de', 'vez', 'ser',
+  'a', 'o', 'as', 'os', 'essa', 'esse', 'esta', 'este', 'ela', 'ele', 'elas', 'eles', 'mensagem', 'mensagens', 'msg',
+  'por', 'favor', 'pf', 'pfv', 'pra', 'pro', 'para', 'p', 'no', 'na', 'whatsapp', 'whats', 'zap', 'wpp',
+]);
+const words = (s) => strip(String(s || '')).replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(Boolean);
+
+function parseSendReply(text, names = []) {
+  const ws = words(text);
+  if (!ws.length || ws.length > 12) return null;
+  const nameWords = new Set(names.flatMap(words));
+  const known = (w) => SEND_WORDS.has(w) || YES_WORDS.has(w) || CANCEL_WORDS.has(w) || FILLER_WORDS.has(w) || nameWords.has(w);
+  if (!ws.every(known)) return null;
+  if (ws.some((w) => CANCEL_WORDS.has(w))) return 'cancel'; // "não envia", "deixa pra lá": na dúvida, não envia
+  if (ws.some((w) => SEND_WORDS.has(w))) return 'confirm';
+  if (ws.some((w) => YES_WORDS.has(w))) return 'yes';
+  return null;
+}
+
 // Aviso de demandas novas depois de uma reunião.
 function formatTasksMessage(meetingTitle, tasks) {
   const br = (d) => d.split('-').reverse().join('/');
@@ -132,4 +158,4 @@ class WhatsApp {
   }
 }
 
-module.exports = { WhatsApp, wantsWhatsApp, toWhatsAppText, splitMessage, formatTasksMessage, extractDrafts, pickContact };
+module.exports = { WhatsApp, wantsWhatsApp, toWhatsAppText, splitMessage, formatTasksMessage, extractDrafts, pickContact, parseSendReply };
