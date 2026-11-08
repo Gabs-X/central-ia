@@ -87,7 +87,7 @@ async function send(text) {
 central.onRoute(({ chatId, route }) => {
   if (chatId !== st.chatId) return;
   q.route.hidden = false;
-  q.route.innerHTML = `→ <b class="${route.provider}">${route.provider === 'codex' ? 'Codex' : 'Claude'} ${escq(route.model)}</b> · ${escq(route.label)}`;
+  q.route.innerHTML = `→ <b class="${route.provider}">${route.provider === 'codex' ? 'Codex' : route.provider === 'local' ? 'Ohara' : 'Claude'} ${escq(route.model)}</b> · ${escq(route.label)}`;
   fit();
 });
 

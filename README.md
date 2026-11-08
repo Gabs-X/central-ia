@@ -38,6 +38,15 @@ Requisitos: `claude` e `codex` instalados e logados (`claude` e `codex login`).
 | Imagens | 🖼️ anexa arquivos de imagem. |
 | Voz | 🎤 abre a digitação por voz do Windows (Win+H, entende pt-BR). Com **Voz** marcado, as respostas são lidas pela voz "Maria". |
 | Conversas | Ficam salvas. Dá pra trocar de IA no meio da conversa e o contexto vai junto. |
+| Vários agentes | Pode mandar outro pedido enquanto ela trabalha: o novo roda em paralelo (marcado com ⫽ paralelo), com o histórico da conversa. Com o campo vazio, o botão vira **Parar** e cancela tudo o que está rodando na conversa. |
+| Ações instantâneas | "Abre o Spotify", "abre o YouTube", "pesquisa no Google receita de bolo": resolvidas na hora, sem IA e sem gastar cota. Apps são procurados no menu Iniciar; se ela não achar, o pedido vai para a IA. Funciona também por voz ("Ohara, abre o Discord"). |
+| WhatsApp | Manda mensagens para você (pedido seu ou aviso de demandas novas depois de uma reunião) e, com sua confirmação, para os seus contatos. Veja abaixo. |
+
+## WhatsApp
+
+**Para você (CallMeBot).** Em Ajustes → WhatsApp, informe seu número com DDI e a chave do [CallMeBot](https://www.callmebot.com/blog/free-api-whatsapp-messages/). Depois é só pedir: "me manda no WhatsApp o resumo da reunião". Quando uma reunião gera demandas novas para você, chega um aviso com a lista e os prazos (dá para desligar em Ajustes). Cada resposta tem o botão 📱 para mandá-la ao seu WhatsApp.
+
+**Para os seus contatos (WhatsApp Web).** Em Ajustes → WhatsApp, clique em **Conectar** e escaneie o QR Code (no celular: Aparelhos conectados). Peça "manda pro João no zap que vou atrasar": a IA escreve a mensagem e a Ohara mostra um cartão com o destinatário e o texto. **Nada sai sem você clicar em Enviar.** Ela procura o contato pelo nome; se houver mais de um parecido, pede o nome completo e não envia. Não é a API oficial do WhatsApp: se a página mudar, o envio pode falhar, e em tese a conta pode sofrer restrição.
 
 ## Roteamento automático
 

@@ -88,6 +88,12 @@ const DEFAULT_CONFIG = {
       token: '',
       importMentions: false,
     },
+    // Mensagens para o seu próprio WhatsApp via CallMeBot (a chave fica criptografada).
+    whatsapp: {
+      phone: '', // com DDI, ex.: +5511999999999
+      apikey: '',
+      notifyMeetingTasks: true, // avisa quando uma reunião gera demandas novas para você
+    },
   },
 
   voice: {

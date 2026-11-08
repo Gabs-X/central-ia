@@ -5,10 +5,30 @@ const state = {
   chatId: null,
   chat: null,
   attachments: [], // { path, preview }
-  running: new Set(),
+  running: new Map(), // chatId -> Set(runId): agentes rodando em cada conversa
   config: null,
-  live: null, // elementos da resposta em andamento { chatId, bubble, tools, text, meta }
+  lives: new Map(), // runId -> { chatId, wrap, msg }: respostas em andamento nesta janela
 };
+
+const isBusy = (chatId) => (state.running.get(chatId)?.size || 0) > 0;
+function markRunning(chatId, runId, on) {
+  if (!state.running.has(chatId)) state.running.set(chatId, new Set());
+  const set = state.running.get(chatId);
+  if (on) set.add(runId);
+  else set.delete(runId);
+  if (!set.size) state.running.delete(chatId);
+}
+
+// Ao reabrir uma conversa, religa as respostas em andamento aos novos elementos da tela.
+function relinkLives() {
+  for (const [runId, live] of state.lives) {
+    if (live.chatId !== state.chatId) continue;
+    const wrap = el.messages.querySelector(`.msg[data-id="${runId}"]`);
+    if (!wrap) continue;
+    live.wrap = wrap;
+    fillAssistant(wrap, live.msg, { live: true });
+  }
+}
 
 const el = {
   list: $('#chat-list'),
@@ -30,7 +50,7 @@ const fileUrl = (p) => `file:///${encodeURI(p.replace(/\\/g, '/').replace(/^\/+/
 const fmtNum = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}k` : String(n || 0));
 
 function providerTag(msg) {
-  const name = msg.provider === 'codex' ? 'Codex' : 'Claude';
+  const name = msg.provider === 'codex' ? 'Codex' : msg.provider === 'local' ? 'Ohara' : 'Claude';
   return `<span class="tag ${msg.provider}">${name} · ${escapeHtml(msg.model || '')}</span>`;
 }
 
@@ -45,7 +65,7 @@ async function refreshList() {
   for (const c of chats) {
     const item = document.createElement('div');
     item.className = `chat-item${c.id === state.chatId ? ' active' : ''}`;
-    item.innerHTML = `<span title="${escapeHtml(c.cwd)}">${state.running.has(c.id) ? '⏳ ' : ''}${escapeHtml(c.title)}</span><button class="del" title="Apagar">✕</button>`;
+    item.innerHTML = `<span title="${escapeHtml(c.cwd)}">${isBusy(c.id) ? `⏳${state.running.get(c.id).size > 1 ? state.running.get(c.id).size : ''} ` : ''}${escapeHtml(c.title)}</span><button class="del" title="Apagar">✕</button>`;
     item.addEventListener('click', () => openChat(c.id));
     item.querySelector('.del').addEventListener('click', async (e) => {
       e.stopPropagation();
@@ -60,8 +80,8 @@ async function refreshList() {
 async function openChat(id) {
   state.chatId = id;
   state.chat = await central.getChat(id);
-  state.live = null;
   renderMessages();
+  relinkLives();
   syncCwdSelect();
   refreshList();
   updateSendButton();
@@ -90,6 +110,7 @@ function renderMessages() {
 function appendMessage(m) {
   const wrap = document.createElement('div');
   wrap.className = `msg ${m.role}`;
+  if (m.id) wrap.dataset.id = m.id;
   if (m.role === 'user') {
     const imgs = (m.images || []).map((p) => `<img src="${fileUrl(p)}" alt="">`).join('');
     wrap.innerHTML = `${imgs ? `<div class="imgs">${imgs}</div>` : ''}<div class="bubble"></div>`;
@@ -106,11 +127,21 @@ function fillAssistant(wrap, m, { live = false } = {}) {
   const meta = wrap.querySelector('.meta');
   const reasons = (m.route?.reasons || []).join(' · ');
   const tokens = m.tokens ? `${fmtNum((m.tokens.input || 0) + (m.tokens.cached || 0))} in · ${fmtNum(m.tokens.output)} out` : '';
-  meta.innerHTML = `${providerTag(m)}<span title="${escapeHtml(reasons)}">${escapeHtml(m.route?.label || '')}</span>${tokens ? `<span>${tokens}</span>` : ''}${
-    live ? '' : '<button class="act" data-a="copy" title="Copiar">⧉</button><button class="act" data-a="speak" title="Ler em voz alta">🔊</button>'
+  const wa = m.whatsapp
+    ? m.whatsapp.sent
+      ? '<span title="Enviado para o seu WhatsApp">📱 enviado</span>'
+      : `<span class="bad" title="${escapeHtml(m.whatsapp.error || '')}">📱 não enviado</span>`
+    : '';
+  const par = m.parallel ? '<span class="tag parallel" title="Rodou ao mesmo tempo que outra tarefa desta conversa">⫽ paralelo</span>' : '';
+  meta.innerHTML = `${providerTag(m)}${par}<span title="${escapeHtml(reasons)}">${escapeHtml(m.route?.label || '')}</span>${tokens ? `<span>${tokens}</span>` : ''}${wa}${
+    live ? '' : '<button class="act" data-a="copy" title="Copiar">⧉</button><button class="act" data-a="speak" title="Ler em voz alta">🔊</button><button class="act" data-a="whatsapp" title="Enviar para o meu WhatsApp">📱</button>'
   }`;
   meta.querySelector('[data-a=copy]')?.addEventListener('click', () => navigator.clipboard.writeText(m.text || ''));
   meta.querySelector('[data-a=speak]')?.addEventListener('click', () => central.speak(m.text || ''));
+  meta.querySelector('[data-a=whatsapp]')?.addEventListener('click', async () => {
+    const r = await callSafe(central.whatsappSend(m.text || ''), 'WhatsApp: ');
+    if (r != null) toast('Enviado para o seu WhatsApp.');
+  });
 
   const tools = wrap.querySelector('.tools');
   const list = m.tools || [];
@@ -135,6 +166,37 @@ function fillAssistant(wrap, m, { live = false } = {}) {
       }),
     );
   }
+  if (!live) renderDrafts(wrap, m);
+}
+
+// Mensagem para contato: só sai depois do clique em "Enviar".
+function renderDrafts(wrap, m) {
+  wrap.querySelector('.wa-drafts')?.remove();
+  if (!m.whatsappDrafts?.length) return;
+  const box = document.createElement('div');
+  box.className = 'wa-drafts';
+  const label = { pending: 'aguardando sua confirmação', sending: 'enviando…', sent: 'enviada', cancelled: 'cancelada', error: 'não enviada' };
+  box.innerHTML = m.whatsappDrafts
+    .map((d, i) => `<div class="wa-draft ${d.status}">
+      <div class="wa-head">📱 WhatsApp para <b>${escapeHtml(d.sentTo || d.to)}</b> <span class="muted small">· ${label[d.status] || d.status}</span></div>
+      <div class="wa-text">${escapeHtml(d.text)}</div>
+      ${d.error ? `<p class="error small">⚠️ ${escapeHtml(d.error)}</p>` : ''}
+      ${d.status === 'pending' || d.status === 'error' ? `<div class="row"><button class="btn small-btn primary" data-wa="send" data-i="${i}">${d.status === 'error' ? 'Tentar de novo' : 'Enviar'}</button><button class="btn small-btn" data-wa="cancel" data-i="${i}">Cancelar</button></div>` : ''}
+    </div>`)
+    .join('');
+  box.querySelectorAll('[data-wa]').forEach((b) =>
+    b.addEventListener('click', async () => {
+      const i = Number(b.dataset.i);
+      b.disabled = true;
+      if (b.dataset.wa === 'send') {
+        const r = await central.whatsappConfirm(state.chatId, m.id, i);
+        if (r?.ok) toast(`Enviada para ${r.data.sentTo || r.data.to}.`);
+      } else {
+        await central.whatsappCancel(state.chatId, m.id, i);
+      }
+    }),
+  );
+  wrap.appendChild(box);
 }
 
 function scrollBottom(force = false) {
@@ -143,26 +205,25 @@ function scrollBottom(force = false) {
 }
 
 // ---------- Envio ----------
-// Enter/Enviar: envia. Com a resposta em andamento, só o botão "Parar" cancela (Enter não cancela por engano).
+// Pode enviar a qualquer momento: se já houver uma tarefa rodando, a nova vira outro agente, em paralelo.
+// Com o campo vazio e algo rodando, o botão vira "Parar" (para todos os agentes da conversa).
 async function sendMessage() {
   const text = el.input.value.trim();
-  if (state.running.has(state.chatId)) {
-    toast('Aguarde a resposta ou clique em Parar.');
-    return;
-  }
   if (!text) return;
 
   const chat = await ensureChat();
   const images = state.attachments.map((a) => a.path);
+  const runId = crypto.randomUUID();
+  const parallel = isBusy(chat.id);
   const userMsg = { role: 'user', text, images };
   chat.messages.push(userMsg);
   el.empty.hidden = true;
   appendMessage(userMsg);
 
-  const liveMsg = { role: 'assistant', text: '', tools: [], provider: 'claude', model: '…', route: null };
+  const liveMsg = { id: runId, role: 'assistant', text: '', tools: [], provider: 'claude', model: '…', route: null, parallel };
   chat.messages.push(liveMsg);
   const wrap = appendMessage(liveMsg);
-  state.live = { chatId: chat.id, wrap, msg: liveMsg };
+  state.lives.set(runId, { chatId: chat.id, wrap, msg: liveMsg });
   fillAssistant(wrap, liveMsg, { live: true });
   scrollBottom(true);
 
@@ -172,72 +233,84 @@ async function sendMessage() {
   renderAttachments();
   el.badge.hidden = true;
 
-  state.running.add(chat.id);
+  markRunning(chat.id, runId, true);
   updateSendButton();
   refreshList();
 
   const res = await central.send(chat.id, {
     text,
     images,
+    runId,
     override: el.model.value,
     permissionMode: el.fullAccess.checked ? 'bypassPermissions' : undefined,
   });
 
-  state.running.delete(chat.id);
-  updateSendButton();
   if (res?.error && !res.role) {
+    // Falhou antes de começar (não houve "chat:done").
+    markRunning(chat.id, runId, false);
+    const live = state.lives.get(runId);
+    state.lives.delete(runId);
     liveMsg.error = res.error;
-    if (state.live?.chatId === chat.id) fillAssistant(wrap, liveMsg);
+    if (live && state.chatId === chat.id) fillAssistant(live.wrap, liveMsg);
+    updateSendButton();
   }
   refreshList();
 }
 
 function updateSendButton() {
-  const busy = state.running.has(state.chatId);
+  const busy = isBusy(state.chatId) && !el.input.value.trim();
   el.send.textContent = busy ? 'Parar' : 'Enviar';
   el.send.classList.toggle('stop', busy);
 }
 
-central.onRoute(({ chatId, route }) => {
-  if (state.live?.chatId !== chatId) return;
-  Object.assign(state.live.msg, { provider: route.provider, model: route.model, route });
+central.onRoute(({ chatId, runId, route }) => {
+  const live = state.lives.get(runId);
+  if (!live) return;
+  Object.assign(live.msg, { provider: route.provider, model: route.model, route });
   // O roteador pode ter levado a conversa para a pasta do projeto citado.
   if (route.project && state.chat?.id === chatId && (state.chat.messages?.length || 0) <= 2) {
     state.chat.cwd = route.project.path;
     syncCwdSelect();
   }
-  fillAssistant(state.live.wrap, state.live.msg, { live: true });
+  if (state.chatId === chatId) fillAssistant(live.wrap, live.msg, { live: true });
 });
 
+const dirty = new Set();
 let renderPending = false;
-central.onEvent(({ chatId, kind, text }) => {
-  if (state.live?.chatId !== chatId) return;
-  const m = state.live.msg;
+central.onEvent(({ chatId, runId, kind, text }) => {
+  const live = state.lives.get(runId);
+  if (!live) return;
+  const m = live.msg;
   if (kind === 'delta') m.text += text;
   if (kind === 'tool') m.tools.push(text);
+  if (state.chatId !== chatId) return;
+  dirty.add(runId);
   if (!renderPending) {
     renderPending = true;
     requestAnimationFrame(() => {
       renderPending = false;
-      if (state.live) {
-        fillAssistant(state.live.wrap, state.live.msg, { live: true });
-        scrollBottom();
+      for (const id of dirty) {
+        const l = state.lives.get(id);
+        if (l && l.chatId === state.chatId) fillAssistant(l.wrap, l.msg, { live: true });
       }
+      dirty.clear();
+      scrollBottom();
     });
   }
 });
 
-central.onDone(async ({ chatId, message, source }) => {
-  state.running.delete(chatId);
+central.onDone(async ({ chatId, runId, message, source }) => {
+  markRunning(chatId, runId, false);
   updateSendButton();
-  if (state.live?.chatId === chatId) {
-    Object.assign(state.live.msg, message);
-    fillAssistant(state.live.wrap, state.live.msg);
-    state.live = null;
-    scrollBottom();
+  const live = state.lives.get(runId);
+  state.lives.delete(runId);
+  if (live) {
+    Object.assign(live.msg, message);
     if (chatId === state.chatId) {
-      state.chat = await central.getChat(chatId);
-      el.title.textContent = state.chat.title;
+      fillAssistant(live.wrap, live.msg);
+      scrollBottom();
+      const fresh = await central.getChat(chatId);
+      el.title.textContent = fresh.title;
     }
   } else if (chatId === state.chatId) {
     // Terminou uma conversa que foi reaberta no meio da execução.
@@ -260,7 +333,7 @@ function schedulePreview() {
     const text = el.input.value.trim();
     if (!text) { el.badge.hidden = true; return; }
     const r = await central.previewRoute(text, { hasImage: state.attachments.length > 0, override: el.model.value, chatId: state.chatId });
-    const name = r.provider === 'codex' ? 'Codex' : 'Claude';
+    const name = r.provider === 'codex' ? 'Codex' : r.provider === 'local' ? 'Ohara' : 'Claude';
     el.badge.innerHTML = `→ <b class="${r.provider}">${name} ${escapeHtml(r.model)}</b> · ${escapeHtml(r.label)}${r.reasons.length > 1 ? ` · ${escapeHtml(r.reasons.slice(1).join(' · '))}` : ''}`;
     el.badge.title = r.reasons.join('\n');
     el.badge.hidden = false;
@@ -429,6 +502,14 @@ function renderUsage(u) {
   $('#usage-today').innerHTML = `Hoje: Claude ${t.claude.calls} pedidos (${tot(t.claude)} tokens)<br>Codex ${t.codex.calls} pedidos (${tot(t.codex)} tokens)`;
 }
 
+central.onMessage(({ chatId, message }) => {
+  if (chatId !== state.chatId) return;
+  const local = state.chat?.messages.find((m) => m.id === message.id);
+  if (local) Object.assign(local, message);
+  const wrap = el.messages.querySelector(`.msg[data-id="${message.id}"]`);
+  if (wrap) fillAssistant(wrap, local || message);
+});
+
 central.onUsage(renderUsage);
 
 // ---------- Entrada ----------
@@ -446,14 +527,14 @@ el.input.addEventListener('keydown', (e) => {
 });
 el.model.addEventListener('change', schedulePreview);
 el.send.addEventListener('click', () => {
-  if (state.running.has(state.chatId)) central.cancel(state.chatId);
+  if (isBusy(state.chatId) && !el.input.value.trim()) central.cancel(state.chatId);
   else sendMessage();
 });
+el.input.addEventListener('input', updateSendButton);
 
 $('#new-chat').addEventListener('click', () => {
   state.chatId = null;
   state.chat = null;
-  state.live = null;
   renderMessages();
   updateSendButton();
   refreshList();
@@ -496,7 +577,6 @@ async function newChatWithPrompt(text, { cwd, send = false, override } = {}) {
   if (typeof setView === 'function') setView('chat');
   state.chatId = null;
   state.chat = null;
-  state.live = null;
   renderMessages();
   updateSendButton();
   if (cwd) {

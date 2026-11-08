@@ -57,3 +57,4 @@ html, body { margin: 0; background: transparent; color: var(--text); font-size: 
 @keyframes blink { 0%, 80%, 100% { opacity: .2; } 40% { opacity: 1; } }
 .level { display: inline-block; width: 60px; height: 6px; border-radius: 99px; background: var(--panel-2); overflow: hidden; vertical-align: middle; }
 .level i { display: block; height: 100%; background: var(--danger); width: 0; transition: width .08s; }
+.q-route b.local { color: #25d3a6; }

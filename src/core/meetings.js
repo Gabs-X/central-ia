@@ -72,7 +72,8 @@ function instructions(meeting, selfName) {
 }
 
 class MeetingsService {
-  constructor({ store, usage, getConfig, emit, notify }) {
+  constructor({ store, usage, getConfig, emit, notify, onNewTasks }) {
+    this.onNewTasks = onNewTasks || (() => {}); // (reunião, demandas realmente novas) → ex.: aviso no WhatsApp
     this.store = store; // JsonStore { meetings: {}, tasks: [] }
     this.usage = usage;
     this.getConfig = getConfig;
@@ -280,7 +281,10 @@ class MeetingsService {
     m.reason = null;
     delete m.retryAt;
 
+    const before = new Set(this.store.data.tasks.filter((t) => t.meetingKey === m.key).map((t) => normText(t.text)));
     const added = this.#mergeTasks(m, result.data.minhas_demandas || []);
+    // Reprocessar a mesma reunião não avisa de novo o que já existia.
+    const fresh = this.store.data.tasks.filter((t) => t.meetingKey === m.key && !before.has(normText(t.text)));
     this.#mergeWaiting(m, result.data.demandas_de_outros || []);
     this.emit('usage:update', this.usage.summary());
     if (added > 0 || result.data.relevante !== false) {
@@ -288,6 +292,9 @@ class MeetingsService {
         `Reunião resumida: ${m.title}`,
         added ? `${added} demanda${added > 1 ? 's' : ''} nova${added > 1 ? 's' : ''} para você` : 'Nenhuma demanda para você',
       );
+    }
+    if (fresh.length) {
+      try { this.onNewTasks(m, fresh); } catch { /* aviso é opcional */ }
     }
   }
 

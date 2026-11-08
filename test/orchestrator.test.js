@@ -1,0 +1,108 @@
+const test = require('node:test');
+const assert = require('node:assert');
+const path = require('path');
+
+// IA falsa: cada chamada espera até ser liberada pelo teste.
+const calls = [];
+function fakeProvider(provider) {
+  return async (opts) => {
+    const call = { provider, opts };
+    calls.push(call);
+    await new Promise((resolve) => { call.finish = resolve; });
+    return { provider, model: opts.model || 'fake', text: call.answer ?? `resposta: ${opts.prompt.split('\n').pop()}`, tokens: {}, sessionId: `sess-${calls.indexOf(call)}` };
+  };
+}
+const stub = (rel, exports) => {
+  const file = require.resolve(path.join('../src/core', rel));
+  require.cache[file] = { id: file, filename: file, loaded: true, exports };
+};
+stub('providers/claude', { runClaude: fakeProvider('claude') });
+stub('providers/codex', { runCodex: fakeProvider('codex') });
+
+const { Orchestrator } = require('../src/core/orchestrator');
+const { DEFAULT_CONFIG } = require('../src/core/config');
+
+function setup(extra = {}) {
+  calls.length = 0;
+  const events = [];
+  const store = (data) => ({ data, save() {} });
+  const usage = { updateClaudeLimits() {}, summary: () => ({}), record() {}, refreshCodexLimits() {}, limits: () => ({}), current: () => ({}) };
+  const o = new Orchestrator({
+    chatsStore: store({ chats: [] }),
+    prefsStore: store({ overrides: [] }),
+    usage,
+    getConfig: () => structuredClone(DEFAULT_CONFIG),
+    emit: (ch, p) => events.push([ch, p]),
+    ...extra,
+  });
+  return { o, events };
+}
+const tick = () => new Promise((r) => setTimeout(r, 10));
+
+test('aceita um segundo pedido enquanto o primeiro roda, em paralelo', async () => {
+  const { o } = setup();
+  const chat = o.create('C:\\tmp');
+  const p1 = o.send(chat.id, { text: 'explique a arquitetura do projeto em detalhes', runId: 'r1' });
+  await tick();
+  assert.equal(o.isRunning(chat.id), true);
+
+  const p2 = o.send(chat.id, { text: 'qual a capital da França?', runId: 'r2' });
+  await tick();
+  assert.equal(calls.length, 2, 'os dois agentes rodam ao mesmo tempo');
+  assert.equal(calls[1].opts.sessionId, undefined, 'o paralelo não reaproveita a sessão em uso');
+  assert.match(calls[1].opts.systemPrompt, /rodando em paralelo/);
+
+  calls[1].finish(); // o segundo termina primeiro
+  const a2 = await p2;
+  assert.equal(a2.parallel, true);
+  assert.equal(o.isRunning(chat.id), true, 'o primeiro continua rodando');
+
+  calls[0].finish();
+  const a1 = await p1;
+  assert.equal(a1.parallel, false);
+  assert.equal(o.isRunning(chat.id), false);
+  // Só o agente principal guarda a sessão.
+  assert.equal(chat.sessions[a1.provider].id, 'sess-0');
+});
+
+test('cancelar sem runId para todos os agentes da conversa', async () => {
+  const { o } = setup();
+  const chat = o.create('C:\\tmp');
+  o.send(chat.id, { text: 'tarefa 1 bem longa de análise', runId: 'a' });
+  o.send(chat.id, { text: 'tarefa 2', runId: 'b' });
+  await tick();
+  o.cancel(chat.id);
+  assert.ok(calls.every((c) => c.opts.signal.aborted));
+  calls.forEach((c) => c.finish());
+});
+
+test('pedido para contato vira rascunho e só sai depois da confirmação', async () => {
+  const sent = [];
+  const whatsappWeb = { send: async (to, text) => { sent.push({ to, text }); return { to: 'João Silva' }; } };
+  const { o } = setup({ whatsappWeb });
+  const chat = o.create('C:\\tmp');
+  const p = o.send(chat.id, { text: 'manda pro João no zap que vou atrasar 10 min', runId: 'w1' });
+  await tick();
+  assert.match(calls[0].opts.systemPrompt, /\[\[whatsapp para=/);
+  calls[0].answer = 'Preparei a mensagem.\n[[whatsapp para="João"]]\nOi João, vou atrasar uns 10 min!\n[[/whatsapp]]';
+  calls[0].finish();
+  const msg = await p;
+
+  assert.equal(msg.text, 'Preparei a mensagem.');
+  assert.equal(msg.whatsappDrafts[0].status, 'pending');
+  assert.equal(sent.length, 0, 'nada é enviado sem confirmação');
+
+  const d = await o.confirmWhatsApp(chat.id, msg.id, 0);
+  assert.equal(d.status, 'sent');
+  assert.deepEqual(sent, [{ to: 'João', text: 'Oi João, vou atrasar uns 10 min!' }]);
+});
+
+test('ação local responde sem chamar a IA', async () => {
+  const opened = [];
+  const { o } = setup({ openExternal: async (u) => opened.push(u) });
+  const chat = o.create('C:\\tmp');
+  const msg = await o.send(chat.id, { text: 'pesquisa no Google receita de bolo', runId: 'g1' });
+  assert.equal(calls.length, 0);
+  assert.equal(msg.provider, 'local');
+  assert.deepEqual(opened, ['https://www.google.com/search?q=receita%20de%20bolo']);
+});

@@ -105,6 +105,15 @@ select { padding: 6px 8px; max-width: 280px; }
 .tag { padding: 2px 8px; border-radius: 99px; background: var(--panel-2); border: 1px solid var(--border); }
 .tag.claude { color: var(--claude); border-color: color-mix(in srgb, var(--claude) 40%, transparent); }
 .tag.codex { color: var(--codex); border-color: color-mix(in srgb, var(--codex) 40%, transparent); }
+.tag.parallel { color: var(--muted, #9aa); }
+.wa-drafts { margin-top: 8px; display: grid; gap: 8px; }
+.wa-draft { border: 1px solid var(--border); border-left: 3px solid #25d366; background: var(--panel-2); border-radius: 10px; padding: 10px 12px; }
+.wa-draft.sent { border-left-color: var(--accent); opacity: .85; }
+.wa-draft.cancelled { opacity: .55; }
+.wa-draft.error { border-left-color: var(--danger); }
+.wa-head { font-size: 13px; margin-bottom: 6px; }
+.wa-text { white-space: pre-wrap; margin-bottom: 8px; }
+.wa-draft .row { gap: 6px; }
 .meta .act { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 12px; padding: 0 4px; }
 .meta .act:hover { color: var(--text); }
 
@@ -222,3 +231,5 @@ textarea { width: 100%; resize: none; border: 0; background: none; outline: none
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 .notice { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; font-size: 13px; }
 @media (max-width: 1000px) { .board, .grid2 { grid-template-columns: 1fr; } }
+.tag.local { color: #25d3a6; border-color: color-mix(in srgb, #25d3a6 40%, transparent); }
+.route-badge b.local { color: #25d3a6; }

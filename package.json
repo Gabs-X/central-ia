@@ -1,6 +1,6 @@
 {
   "name": "ohara",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "Ohara: assistente de IA para o Windows que orquestra Claude Code e Codex, com roteamento de modelo e gestão de cota.",
   "main": "src/main.js",
   "private": true,

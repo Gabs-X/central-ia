@@ -16,6 +16,8 @@ const { Calendar } = require('./integrations/calendar');
 const { GitHub } = require('./integrations/github');
 const { Slack } = require('./integrations/slack');
 const { Whisper } = require('./integrations/whisper');
+const { WhatsApp, formatTasksMessage } = require('./integrations/whatsapp');
+const { WhatsAppWeb } = require('./integrations/whatsapp-web');
 const system = require('./core/system');
 
 // Desenvolvimento: CENTRAL_DATA_DIR usa outra pasta de dados (e permite rodar ao lado do app instalado).
@@ -61,10 +63,11 @@ function readUserConfig() {
   }
 }
 
-// Segredos (token do Slack, endereço secreto da agenda) ficam criptografados com o DPAPI do Windows.
+// Segredos (token do Slack, endereço secreto da agenda, chave do WhatsApp) ficam criptografados com o DPAPI do Windows.
 const SECRETS = [
   ['integrations', 'slack', 'token'],
   ['integrations', 'calendarIcsUrl'],
+  ['integrations', 'whatsapp', 'apikey'],
 ];
 const getIn = (o, p) => p.reduce((x, k) => x?.[k], o);
 function setIn(o, p, v) {
@@ -158,8 +161,17 @@ function notify(title, body, view = null, chatId = null) {
   n.show();
 }
 
-const orchestrator = new Orchestrator({ chatsStore, prefsStore, usage, getConfig, emit: send });
-const meetings = new MeetingsService({ store: meetingsStore, usage, getConfig, emit: send, notify: (t, b) => notify(t, b, 'meetings') });
+const whatsapp = new WhatsApp({ getConfig });
+const whatsappWeb = new WhatsAppWeb({ icon: ICON });
+const orchestrator = new Orchestrator({ chatsStore, prefsStore, usage, getConfig, emit: send, whatsapp, whatsappWeb, openExternal: (url) => shell.openExternal(url) });
+const meetings = new MeetingsService({
+  store: meetingsStore, usage, getConfig, emit: send, notify: (t, b) => notify(t, b, 'meetings'),
+  // Demanda nova depois de uma reunião: avisa no seu WhatsApp.
+  onNewTasks: (m, tasks) => {
+    if (!whatsapp.configured || getConfig().integrations.whatsapp?.notifyMeetingTasks === false) return;
+    whatsapp.send(formatTasksMessage(m.title, tasks)).catch((err) => notify('WhatsApp', `Não consegui avisar das demandas: ${err.message}`));
+  },
+});
 const calendar = new Calendar({ getConfig });
 const github = new GitHub({ getConfig });
 const slack = new Slack({ getConfig });
@@ -449,7 +461,8 @@ function registerIpc() {
       return { error: err.message };
     }
   });
-  handle('chat:cancel', (id) => orchestrator.cancel(id));
+  handle('chat:cancel', (id, runId) => orchestrator.cancel(id, runId));
+  handle('chat:running', (id) => orchestrator.isRunning(id));
   handle('route:preview', (text, opts) => orchestrator.preview(text, opts));
 
   // Aprendizado do roteador
@@ -532,6 +545,12 @@ function registerIpc() {
   handle('slack:status', () => slack.status());
   handleSafe('slack:send', (person, text) => slack.sendDM(person, text));
   handleSafe('slack:import', () => automations.importSlack());
+  handle('whatsapp:status', () => whatsapp.status());
+  handleSafe('whatsapp:send', (text) => whatsapp.send(text));
+  handle('whatsapp:webStatus', () => whatsappWeb.status());
+  handle('whatsapp:webConnect', () => whatsappWeb.connect());
+  handleSafe('whatsapp:confirm', (chatId, messageId, index) => orchestrator.confirmWhatsApp(chatId, messageId, index));
+  handleSafe('whatsapp:cancel', (chatId, messageId, index) => orchestrator.cancelWhatsApp(chatId, messageId, index));
   handle('whisper:status', () => whisper.status());
   handleSafe('whisper:install', () => whisper.install((p) => send('whisper:progress', p)));
   handleSafe('whisper:transcribe', async (wavBytes) => {
@@ -596,6 +615,7 @@ app.whenReady().then(() => {
 
 app.on('before-quit', () => {
   quitting = true;
+  whatsappWeb.destroy();
   meetings.stop();
   automations.stop();
   for (const s of stores) s.flush();

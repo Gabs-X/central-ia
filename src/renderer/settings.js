@@ -2,13 +2,14 @@
 // Tela "Ajustes": integrações (agenda, GitHub, Slack), voz, atalhos, reuniões e geral.
 
 async function renderSettings() {
-  const [cfg, hk, cal, sl, ws, login] = await Promise.all([
+  const [cfg, hk, cal, sl, ws, login, wa] = await Promise.all([
     central.getConfig(),
     central.hotkeyStatus(),
     central.calendarStatus(),
     central.slackStatus(),
     central.whisperStatus(),
     central.loginItem(),
+    central.whatsappStatus(),
   ]);
   const body = document.getElementById('settings-body');
   const ok = (good, text) => `<span class="status ${good ? 'good' : 'bad'}">${good ? '●' : '○'} ${esc(text)}</span>`;
@@ -37,6 +38,19 @@ async function renderSettings() {
       <div class="row"><input id="sl-token" type="password" placeholder="xoxp-..." value="${I.slack.tokenSet ? '••••••' : ''}"><button class="btn small-btn" id="sl-save">Salvar</button>${I.slack.tokenSet ? '<button class="btn small-btn" id="sl-clear">Remover</button>' : ''}</div>
       <p>${!sl.configured ? ok(false, 'não conectado') : sl.ok ? ok(true, `conectado como ${sl.name} (${sl.team})`) : ok(false, sl.error)}</p>
       ${sl.ok ? '<button class="btn small-btn" id="sl-import">Importar menções agora</button> <span class="muted small">Para importar sozinho, ligue o agendamento “Importar menções do Slack” em Automações.</span>' : ''}
+    </section>
+
+    <section class="section">
+      <h2>📱 WhatsApp</h2>
+      <h3>Mensagens para você</h3>
+      <p class="muted small">Quando você pedir (“me manda no WhatsApp o resumo da reunião”) e quando uma reunião gerar demandas novas para você. Usa o <b>CallMeBot</b>: siga o passo a passo do <a href="https://www.callmebot.com/blog/free-api-whatsapp-messages/" target="_blank">site do CallMeBot</a> (você manda uma mensagem de autorização para o número deles) e cole aqui a chave (apikey) recebida. A chave fica criptografada neste PC.</p>
+      <div class="row"><input id="wa-phone" placeholder="Seu número com DDI, ex.: +5511999999999" value="${esc(I.whatsapp?.phone || '')}"><input id="wa-key" type="password" placeholder="apikey" value="${I.whatsapp?.apikeySet ? '••••••' : ''}"><button class="btn small-btn" id="wa-save">Salvar</button>${wa.configured ? '<button class="btn small-btn" id="wa-test">Enviar teste</button><button class="btn small-btn" id="wa-clear">Remover</button>' : ''}</div>
+      <p>${wa.configured ? ok(true, `configurado para ${wa.phone}`) : ok(false, 'não configurado')}</p>
+      <label class="check"><input type="checkbox" id="wa-meetings" ${I.whatsapp?.notifyMeetingTasks !== false ? 'checked' : ''}> Avisar no WhatsApp quando uma reunião gerar demandas novas para mim</label>
+
+      <h3>Mensagens para os seus contatos</h3>
+      <p class="muted small">Peça “manda pro João no zap que vou atrasar”: a Ohara escreve a mensagem e mostra um cartão para você <b>confirmar antes de enviar</b>. Usa o seu WhatsApp Web numa janela da Ohara: conecte uma vez escaneando o QR Code (WhatsApp no celular → Aparelhos conectados). Não é a API oficial do WhatsApp; em tese, a conta pode sofrer restrição.</p>
+      <div class="row"><button class="btn small-btn" id="waw-connect">Conectar / abrir WhatsApp Web</button><button class="btn small-btn" id="waw-check">Verificar conexão</button><span id="waw-state" class="small"></span></div>
     </section>
 
     <section class="section">
@@ -123,6 +137,30 @@ async function renderSettings() {
     renderSettings();
   });
   $s('#sl-clear')?.addEventListener('click', async () => { await save({ integrations: { slack: { token: '' } } }, 'Slack desconectado.'); renderSettings(); });
+  // WhatsApp
+  $s('#wa-save').addEventListener('click', async () => {
+    const phone = $s('#wa-phone').value.trim().replace(/[\s()-]/g, '');
+    const key = $s('#wa-key').value.trim();
+    if (!/^\+\d{10,15}$/.test(phone)) return toast('Informe o número com DDI, ex.: +5511999999999', 'error');
+    const partial = { integrations: { whatsapp: { phone } } };
+    if (key && key !== '••••••') partial.integrations.whatsapp.apikey = key;
+    await save(partial, 'WhatsApp salvo.');
+    renderSettings();
+  });
+  $s('#wa-test')?.addEventListener('click', async () => {
+    const r = await callSafe(central.whatsappSend('✅ Teste da Ohara: o WhatsApp está funcionando.'), 'WhatsApp: ');
+    if (r != null) toast('Mensagem de teste enviada. Confira o seu WhatsApp.');
+  });
+  $s('#wa-clear')?.addEventListener('click', async () => { await save({ integrations: { whatsapp: { phone: '', apikey: '' } } }, 'WhatsApp removido.'); renderSettings(); });
+  $s('#wa-meetings').addEventListener('change', (e) => save({ integrations: { whatsapp: { notifyMeetingTasks: e.target.checked } } }));
+  $s('#waw-connect').addEventListener('click', () => central.whatsappWebConnect());
+  $s('#waw-check').addEventListener('click', async () => {
+    const st = $s('#waw-state');
+    st.textContent = 'Verificando…';
+    const r = await central.whatsappWebStatus();
+    st.innerHTML = r.connected ? ok(true, 'conectado') : ok(false, r.loading ? 'não respondeu; abra o WhatsApp Web e confira' : 'não conectado: clique em Conectar e escaneie o QR Code');
+  });
+
   $s('#sl-import')?.addEventListener('click', async () => {
     const n = await callSafe(central.slackImport(), 'Slack: ');
     if (n != null) toast(`${n} demanda(s) importada(s).`);
