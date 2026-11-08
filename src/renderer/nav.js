@@ -44,7 +44,11 @@ async function applyListening(cfg) {
   const want = !!cfg.voice.wakeWord;
   if (want && !stopListening) {
     const ws = await central.whisperStatus();
-    if (!ws.installed) return;
+    if (!ws.installed) {
+      central.voiceLog(`escuta ligada, mas o Whisper (modelo ${ws.modelName}) não está instalado`);
+      return;
+    }
+    central.voiceLog('escuta: iniciando');
     stopListening = Voice.listen({
       onHeard: async (bytes) => {
         const r = await central.voiceHeard(bytes);
@@ -57,8 +61,9 @@ async function applyListening(cfg) {
         return { state: action === 'ignorado' || action === 'nada' ? 'ouvindo' : action };
       },
       onState: showListenState,
-      // Não ouve a própria voz enquanto lê uma resposta.
-      isSpeaking: () => typeof tts !== 'undefined' && !!tts.audio,
+      onLog: (msg) => central.voiceLog(msg),
+      // Não ouve a própria voz enquanto lê uma resposta (só conta áudio tocando de verdade).
+      isSpeaking: () => typeof tts !== 'undefined' && !!tts.audio && !tts.audio.paused && !tts.audio.ended,
     });
   } else if (!want && stopListening) {
     stopListening();

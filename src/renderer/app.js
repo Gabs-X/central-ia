@@ -635,12 +635,23 @@ function ttsNext() {
   const file = tts.queue.shift();
   const a = new Audio(fileUrl(file));
   tts.audio = a;
+  let finished = false;
+  let guard = null;
   const done = () => {
+    if (finished) return;
+    finished = true;
+    clearTimeout(guard);
     if (tts.audio === a) tts.audio = null;
     ttsNext();
   };
   a.addEventListener('ended', done);
   a.addEventListener('error', done);
+  // Trava de segurança: se o áudio não começar ou não avisar que terminou, libera a fila (e a escuta).
+  guard = setTimeout(done, 10000);
+  a.addEventListener('loadedmetadata', () => {
+    clearTimeout(guard);
+    guard = setTimeout(done, (a.duration || 8) * 1000 + 3000);
+  });
   a.play().catch(done);
 }
 central.onTtsPlay(({ id, file, first }) => {

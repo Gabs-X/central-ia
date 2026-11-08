@@ -265,8 +265,31 @@ async function voiceCommand(text) {
   voiceState('ouvindo o próximo pedido');
 }
 
+// Registro da escuta (%APPDATA%\Ohara\escuta.log): o que o microfone captou, o que o Whisper entendeu e o que ela fez.
+// Serve para descobrir por que ela não atendeu um chamado.
+function voiceLog(msg) {
+  const file = path.join(dataDir, 'escuta.log');
+  try {
+    if (fs.existsSync(file) && fs.statSync(file).size > 300_000) fs.renameSync(file, `${file}.old`);
+    fs.appendFileSync(file, `${new Date().toLocaleString('pt-BR')}  ${msg}\n`);
+  } catch { /* registro é opcional */ }
+}
+
 // Recebe cada fala gravada pela escuta contínua.
 async function onVoiceHeard(wavBytes) {
+  const t0 = Date.now();
+  const secs = (Math.max(0, wavBytes.length - 44) / 32000).toFixed(1);
+  try {
+    const r = await decideVoice(wavBytes);
+    voiceLog(`fala de ${secs}s → Whisper: "${r.text}" → ${r.action} (${Date.now() - t0} ms)${voiceSession.active ? ' [conversa aberta]' : ''}`);
+    return r;
+  } catch (err) {
+    voiceLog(`fala de ${secs}s → ERRO: ${err.message}`);
+    throw err;
+  }
+}
+
+async function decideVoice(wavBytes) {
   const file = path.join(os.tmpdir(), `ohara-escuta-${Date.now()}.wav`);
   fs.writeFileSync(file, Buffer.from(wavBytes));
   let text;
@@ -392,6 +415,10 @@ function createWindow() {
     webPreferences: { ...webPreferences(), backgroundThrottling: false },
   });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  // Avisos e erros da janela (onde roda a escuta) vão para o registro da escuta.
+  win.webContents.on('console-message', (_e, level, message) => {
+    if (level >= 2) voiceLog(`[janela] ${String(message).slice(0, 300)}`);
+  });
   // Ao iniciar com o Windows (--hidden), fica só na bandeja.
   win.once('ready-to-show', () => {
     if (!process.argv.includes('--hidden') && !process.env.CENTRAL_SNAPSHOT_QUICK) win.show();
@@ -765,6 +792,7 @@ function registerIpc() {
   handle('quick:ask', (text) => showQuick({ mode: 'ask', text, autoSend: true }));
   handleSafe('voice:heard', (wavBytes) => onVoiceHeard(wavBytes));
   handle('voice:end', () => endVoiceSession(false));
+  handle('voice:log', (msg) => voiceLog(String(msg).slice(0, 500)));
   handle('app:loginItem', (on) => {
     if (on !== undefined && app.isPackaged) app.setLoginItemSettings({ openAtLogin: !!on, args: ['--hidden'] });
     return { enabled: app.getLoginItemSettings().openAtLogin, available: app.isPackaged };

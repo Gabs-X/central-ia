@@ -41,6 +41,7 @@ contextBridge.exposeInMainWorld('central', {
   onTtsStop: on('tts:stop'),
   voiceHeard: inv('voice:heard'),
   voiceEnd: inv('voice:end'),
+  voiceLog: inv('voice:log'),
   onVoiceSession: on('voice:session'),
   openPath: inv('shell:openPath'),
   openExternal: inv('shell:openExternal'),

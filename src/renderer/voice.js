@@ -109,7 +109,7 @@ const Voice = (() => {
   // enviado ao processo principal, que transcreve e decide (chamada, pedido da conversa ou nada).
   // Não fica surda enquanto o Whisper trabalha: as falas entram numa fila.
   // Ignora o que for captado enquanto a própria Ohara está falando (isSpeaking).
-  function listen({ onHeard, onState, isSpeaking = () => false }) {
+  function listen({ onHeard, onState, isSpeaking = () => false, onLog = () => {} }) {
     let active = true;
     let stream = null;
     let ctx = null;
@@ -142,7 +142,9 @@ const Voice = (() => {
     }
 
     async function start() {
+      onLog('pedindo acesso ao microfone');
       stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+      onLog('acesso ao microfone liberado');
       ctx = new AudioContext();
       src = ctx.createMediaStreamSource(stream);
       proc = ctx.createScriptProcessor(2048, 1, 1);
@@ -152,6 +154,10 @@ const Voice = (() => {
       let seg = null; // { chunks, startedAt, lastVoice, speechMs }
       let noise = 0.004; // nível de ruído ambiente, aprendido aos poucos
       let speakingUntil = 0;
+      // Resumo de 1 em 1 minuto no registro: mostra se o microfone está mesmo captando som.
+      const stats = { peak: 0, segments: 0, short: 0, muted: 0, since: performance.now() };
+      const track = stream.getAudioTracks()[0];
+      onLog(`microfone aberto: "${track?.label || 'desconhecido'}" · ${rate} Hz · áudio ${ctx.state}`);
 
       proc.onaudioprocess = (e) => {
         const data = new Float32Array(e.inputBuffer.getChannelData(0));
@@ -159,10 +165,16 @@ const Voice = (() => {
         for (let i = 0; i < data.length; i += 2) sum += data[i] * data[i];
         const rms = Math.sqrt(sum / (data.length / 2));
         const now = performance.now();
+        stats.peak = Math.max(stats.peak, rms);
+        if (now - stats.since > 60000) {
+          onLog(`escutando · pico de volume ${stats.peak.toFixed(3)} · limiar ${Math.max(0.01, noise * 3.2).toFixed(3)} · falas enviadas ${stats.segments} · curtas demais ${stats.short} · ignorado enquanto ela falava ${(stats.muted * chunkMs / 1000).toFixed(0)}s · áudio ${ctx.state}`);
+          Object.assign(stats, { peak: 0, segments: 0, short: 0, muted: 0, since: now });
+        }
 
         // Enquanto a Ohara fala (e logo depois), não grava: senão ela ouve a própria voz.
         if (isSpeaking()) speakingUntil = now + 700;
         if (now < speakingUntil) {
+          stats.muted++;
           seg = null;
           preRoll.length = 0;
           return;
@@ -191,9 +203,10 @@ const Voice = (() => {
           const done = seg;
           seg = null;
           if (done.speechMs >= MIN_SPEECH_MS) {
+            stats.segments++;
             queue.push(wav(downsample(done.chunks, rate)));
             drain();
-          }
+          } else stats.short++;
         }
       };
       src.connect(proc);
@@ -206,8 +219,12 @@ const Voice = (() => {
         if (ctx.state === 'suspended') ctx.resume().catch(() => {});
         const track = stream.getAudioTracks()[0];
         if (!track || track.readyState === 'ended') {
+          onLog('microfone desconectado: reabrindo');
           stopAudio();
-          start().catch((err) => onState?.(`erro: ${err.message}`));
+          start().catch((err) => {
+            onLog(`erro ao reabrir o microfone: ${err.message}`);
+            onState?.(`erro: ${err.message}`);
+          });
         }
       }, 3000);
     }
@@ -220,11 +237,14 @@ const Voice = (() => {
       stream = ctx = proc = src = null;
     }
 
-    start().catch((err) => {
-      onState?.(`erro no microfone: ${err.message}`);
-      // tenta de novo (ex.: microfone ainda não liberado ao iniciar com o Windows)
-      setTimeout(() => active && start().catch(() => {}), 10000);
-    });
+    // Tenta abrir o microfone; se falhar (ex.: ainda não liberado ao iniciar com o Windows), tenta de novo a cada 10 s.
+    const open = () =>
+      start().catch((err) => {
+        onLog(`erro ao abrir o microfone: ${err.message}`);
+        onState?.(`erro no microfone: ${err.message}`);
+        if (active) setTimeout(open, 10000);
+      });
+    open();
 
     return () => {
       active = false;
