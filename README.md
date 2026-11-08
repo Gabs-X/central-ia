@@ -3,7 +3,16 @@
 App desktop (Electron) que usa as **suas assinaturas** do Claude Code e do Codex como um assistente para o PC inteiro.
 Para cada pedido, ela escolhe a IA, o modelo e o nível de esforço mais adequados e acompanha a cota de cada assinatura.
 
-## Como rodar
+## Download
+
+Baixe a versão mais recente em **[Releases](https://github.com/Gabs-X/ohara/releases/latest)**:
+
+- `Ohara-Setup-<versão>.exe`: instalador (recomendado).
+- `Ohara-Portatil-<versão>.exe`: roda direto, sem instalar.
+
+Requisitos: Windows 10/11 com o `claude` e o `codex` instalados e logados.
+
+## Como rodar a partir do código
 
 ```powershell
 npm install
