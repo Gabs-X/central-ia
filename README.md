@@ -26,7 +26,8 @@ Requisitos: `claude` e `codex` instalados e logados (`claude` e `codex login`).
 **Atalho global:** `Ctrl+Espaço` mostra ou esconde a janela. Fechar a janela só a esconde nos ícones ocultos da barra de tarefas; para sair, use **Sair** no ícone da bandeja.
 
 **Iniciar com o Windows:** vem ligado no app instalado, que abre escondido na bandeja ao ligar o PC. Para desligar, desmarque **Iniciar com o Windows** no menu do ícone da bandeja.
-n**Versões antigas:** ao abrir uma versão nova pela primeira vez, a Ohara manda para a Lixeira os instaladores e portáteis de versões anteriores (Downloads, Área de Trabalho e pasta de arquivos gerados) e desinstala a antiga Central IA, se ela ainda estiver no PC. A versão em uso nunca é tocada.
+
+**Versões antigas:** ao abrir uma versão nova pela primeira vez, a Ohara manda para a Lixeira os instaladores e portáteis de versões anteriores (Downloads, Área de Trabalho e pasta de arquivos gerados) e desinstala a antiga Central IA, se ela ainda estiver no PC. A versão em uso nunca é tocada.
 
 ## O que ela faz
 
