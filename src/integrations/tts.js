@@ -12,9 +12,15 @@ const isNeural = (voice) => /Neural$/i.test(String(voice || ''));
 
 const MAX_CHUNK = 450; // trechos curtos: o primeiro começa a tocar rápido
 
+// Pronúncia japonesa de "Ohara" (o-HA-ra, com o "h" aspirado) escrita para a voz em português:
+// o "rr" brasileiro faz o som do "h" japonês e o "r" final é leve. Só muda a fala; a tela continua "Ohara".
+const PRONUNCIATION = [[/\bOhara\b/gi, 'Orrara']];
+
 // Deixa o texto bom de ouvir: sem código, markdown, links crus nem emojis.
 function cleanForSpeech(text) {
-  return String(text || '')
+  let s = String(text || '');
+  for (const [re, said] of PRONUNCIATION) s = s.replace(re, said);
+  return s
     .replace(/\[\[[\s\S]*?\]\]/g, ' ') // marcações internas ([[melhoria: ...]], [[whatsapp ...]])
     .replace(/\[\[[^\]]*$/, ' ') // marcação ainda chegando (leitura em fluxo)
     .replace(/^[^[]*\]\]/, ' ') // fim de uma marcação que começou no trecho anterior

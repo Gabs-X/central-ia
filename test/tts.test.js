@@ -39,3 +39,8 @@ test('não lê as marcações internas', () => {
   assert.equal(cleanForSpeech('Posso aprender isso. [[melhoria: ler PD'), 'Posso aprender isso.');
   assert.equal(cleanForSpeech('F e DOCX]]'), '');
 });
+
+test('pronuncia "Ohara" como em japonês (Orrara)', () => {
+  assert.equal(cleanForSpeech('Oi! Eu sou a Ohara.'), 'Oi! Eu sou a Orrara.');
+  assert.equal(cleanForSpeech('Na ilha de OHARA'), 'Na ilha de Orrara');
+});
