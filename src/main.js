@@ -229,7 +229,7 @@ function speechStream(voice = config.voice.ttsVoice) {
 // na mesma conversa, até "valeu"/"pode parar" ou alguns segundos de silêncio.
 const voiceSession = { active: false, chatId: null, timer: null };
 const END_RE = /^(valeu|obrigad[oa]|brigad[oa]|tchau|ate mais|ate logo|pode parar|para de ouvir|encerra\w*|fim da conversa|so isso|era so isso|nada nao|deixa pra la)\b/;
-const GREETINGS = ['Oi, Gabriel! Pode falar.', 'Tô aqui! Manda.', 'Oi! A biblioteca de Ohara está aberta. O que você precisa?', 'Pode falar, capitão!', 'Oi! Pronta pra próxima aventura. Fala!', 'Opa! Tô ouvindo.'];
+const GREETINGS = ['Oi, Gabriel! Pode falar.', 'Tô aqui! Manda.', 'Oi! O que você precisa?', 'Opa! Tô ouvindo.', 'Fala, Gabriel! No que eu te ajudo?'];
 
 function voiceState(state, extra = {}) {
   if (win && !win.isDestroyed()) win.webContents.send('voice:session', { active: voiceSession.active, state, ...extra });
@@ -245,7 +245,7 @@ function endVoiceSession(sayBye) {
   clearTimeout(voiceSession.timer);
   if (!voiceSession.active) return;
   voiceSession.active = false;
-  if (sayBye) speak(['Até mais, Gabriel!', 'Fechou! Qualquer coisa, é só chamar.', 'Valeu! Volto pra minha biblioteca.'][Math.floor(Math.random() * 3)]);
+  if (sayBye) speak(['Até mais, Gabriel!', 'Fechou! Qualquer coisa, é só chamar.', 'Valeu! Tô por aqui se precisar.'][Math.floor(Math.random() * 3)]);
   voiceState('esperando "Ohara"');
 }
 

@@ -64,7 +64,7 @@ Para responder rápido, ela começa a falar assim que a primeira frase da respos
 
 ## Resolve ou aprende
 
-A Ohara é resolutiva e tem bom humor: resolve primeiro e, quando cabe, solta uma piada curta (às vezes com referência a One Piece), mas nunca quando o assunto é sério ou você está com pressa. Antes de dizer que não consegue, tenta outro caminho (PowerShell, um app, um site, um script). Quando o pedido depende de algo que ela ainda não sabe fazer, ela explica o que falta e se oferece para se alterar. Aparece um botão **"Sim, pode se alterar"**; responder "sim" no chat ou por voz tem o mesmo efeito.
+A Ohara é resolutiva e tem bom humor: resolve primeiro e, quando cabe, solta uma piada curta, mas nunca quando o assunto é sério ou você está com pressa. Antes de dizer que não consegue, tenta outro caminho (PowerShell, um app, um site, um script). Quando o pedido depende de algo que ela ainda não sabe fazer, ela explica o que falta e se oferece para se alterar. Aparece um botão **"Sim, pode se alterar"**; responder "sim" no chat ou por voz tem o mesmo efeito.
 
 Ao aceitar, ela trabalha no próprio repositório (`selfRepo` no `config.json`), com o modelo mais forte: implementa a mudança, escreve testes, roda `npm test` e faz um commit local. Ela não publica nada sozinha; no fim, pergunta se você quer que ela gere e publique a versão nova.
 
