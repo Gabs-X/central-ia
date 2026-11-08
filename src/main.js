@@ -228,10 +228,12 @@ function createWindow() {
       }, 1500),
     );
   }
+  // Fechar a janela só a esconde: a Ohara continua nos ícones ocultos da bandeja.
   win.on('close', (e) => {
     if (!quitting) {
       e.preventDefault();
       win.hide();
+      notifyHiddenOnce();
     }
   });
   secureWindow(win);
@@ -303,6 +305,28 @@ function showView(view) {
   win.show();
   win.focus();
   win.webContents.send('app:view', view);
+}
+
+// Avisa uma única vez que fechar a janela não encerra o app.
+function notifyHiddenOnce() {
+  const marker = path.join(dataDir, 'aviso-bandeja-mostrado');
+  if (fs.existsSync(marker) || !tray) return;
+  try { fs.writeFileSync(marker, new Date().toISOString()); } catch {}
+  tray.displayBalloon({
+    title: 'A Ohara continua aberta',
+    content: 'Ela fica nos ícones ocultos da barra de tarefas. Para encerrar, clique com o botão direito no ícone e escolha Sair.',
+    iconType: 'info',
+  });
+}
+
+// Na primeira execução do app instalado, liga "Iniciar com o Windows" (escondida na bandeja).
+// Depois disso, vale o que a pessoa escolher no menu da bandeja.
+function enableAutoStartOnce() {
+  if (!app.isPackaged) return;
+  const marker = path.join(dataDir, 'inicio-automatico-configurado');
+  if (fs.existsSync(marker)) return;
+  app.setLoginItemSettings({ openAtLogin: true, args: ['--hidden'] });
+  try { fs.writeFileSync(marker, new Date().toISOString()); } catch {}
 }
 
 function createTray() {
@@ -549,6 +573,7 @@ app.whenReady().then(() => {
   session.defaultSession.setPermissionRequestHandler((wc, permission, cb) => cb(permission === 'media' && wc.getURL().startsWith('file:')));
   session.defaultSession.setPermissionCheckHandler((wc, permission) => permission === 'media' && !!wc?.getURL().startsWith('file:'));
 
+  enableAutoStartOnce();
   registerIpc();
   createWindow();
   createQuick();

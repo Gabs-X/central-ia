@@ -23,7 +23,9 @@ npm test           # testes do roteador
 
 Requisitos: `claude` e `codex` instalados e logados (`claude` e `codex login`).
 
-**Atalho global:** `Ctrl+Espaço` mostra ou esconde a janela. Fechar a janela só a esconde; para sair, use **Sair** no ícone da bandeja.
+**Atalho global:** `Ctrl+Espaço` mostra ou esconde a janela. Fechar a janela só a esconde nos ícones ocultos da barra de tarefas; para sair, use **Sair** no ícone da bandeja.
+
+**Iniciar com o Windows:** vem ligado no app instalado, que abre escondido na bandeja ao ligar o PC. Para desligar, desmarque **Iniciar com o Windows** no menu do ícone da bandeja.
 
 ## O que ela faz
 
