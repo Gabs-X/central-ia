@@ -186,3 +186,4 @@ button.meeting-item:hover { background: var(--panel-2); }
   #view-meetings .search-bar { flex-wrap: wrap; }
   #view-meetings .search-bar input { min-width: 0; }
 }
+.app-version { display: block; font-size: 11px; font-weight: 400; color: var(--muted); }

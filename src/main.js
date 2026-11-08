@@ -382,6 +382,7 @@ function registerIpc() {
 
   // Configuração
   handle('config:get', () => publicConfig());
+  handle('app:version', () => app.getVersion());
   handle('config:set', (partial) => {
     // Ignora o marcador "••••••" que a interface mostra no lugar do segredo.
     for (const p of SECRETS) if (getIn(partial, p) === '••••••') setIn(partial, p, undefined);

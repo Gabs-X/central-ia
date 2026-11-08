@@ -521,6 +521,7 @@ async function newChatWithPrompt(text, { cwd, send = false, override } = {}) {
 // ---------- Início ----------
 (async function init() {
   state.config = await central.getConfig();
+  central.appVersion().then((v) => { document.getElementById('app-version').textContent = 'v' + v; });
   el.speak.checked = !!state.config.voice.speakReplies;
   await loadRepos();
   syncCwdSelect();

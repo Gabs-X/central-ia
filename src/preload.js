@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('central', {
   getConfig: inv('config:get'),
   setConfig: inv('config:set'),
   hotkeyStatus: inv('hotkeys:status'),
+  appVersion: inv('app:version'),
 
   // Conversas
   listChats: inv('chats:list'),
