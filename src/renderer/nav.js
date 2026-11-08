@@ -39,6 +39,8 @@ function showListenState(s) {
   dot.title = heardLog.length ? `Últimas falas ouvidas:\n${heardLog.join('\n')}` : '';
 }
 central.onVoiceSession(({ state }) => showListenState(state));
+// Ex.: "Ohara, desativa o microfone" desliga a escuta pela voz.
+central.onConfigChanged((cfg) => applyListening(cfg));
 
 async function applyListening(cfg) {
   const want = !!cfg.voice.wakeWord;

@@ -102,15 +102,48 @@ function formatTasksMessage(meetingTitle, tasks) {
 
 const norm = (s) => strip(String(s || '')).replace(/\s+/g, ' ').trim();
 
-// Escolhe o contato: nome igual > único resultado > nome que começa igual (se só um). Senão, ambíguo.
+function editDistance(a, b) {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  }
+  return d[a.length][b.length];
+}
+
+// Quanto o nome salvo combina com o que ele falou (0 = nada). Aceita parte do nome ("Tata" → "Tata Souza"),
+// apelido no começo ("vó" → "Vó Maria") e erro de transcrição ("tatar" → "Tata").
+function contactScore(query, title) {
+  const q = norm(query).replace(/[^a-z0-9 ]/g, '').trim();
+  const t = norm(title).replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!q || !t) return 0;
+  if (t === q) return 100;
+  const tw = t.split(' ');
+  const qw = q.split(' ');
+  if (t.startsWith(`${q} `)) return 92;
+  if (tw.includes(q)) return 88;
+  if (qw.every((w) => tw.some((x) => x === w))) return 86;
+  if (t.startsWith(q)) return 80;
+  if (qw.every((w) => tw.some((x) => x.startsWith(w)))) return 75;
+  if (q.length >= 4 && t.includes(q)) return 65;
+  // Parecido (erro de transcrição): melhor palavra do nome contra a primeira palavra falada.
+  const best = Math.max(...tw.map((x) => 1 - editDistance(x, qw[0]) / Math.max(x.length, qw[0].length)));
+  return best >= 0.6 && qw[0].length >= 3 ? Math.round(best * 60) : 0;
+}
+
+// Escolhe o contato pelo melhor score; se dois ficarem empatados no topo, é ambíguo (pergunta em vez de chutar).
 function pickContact(query, titles) {
   const q = norm(query);
   const uniq = [...new Set(titles.filter(Boolean))];
+  const ranked = uniq.map((t) => ({ t, s: contactScore(query, t) })).filter((x) => x.s > 0).sort((a, b) => b.s - a.s);
+  if (ranked.length === 1 || (ranked.length > 1 && ranked[0].s - ranked[1].s >= 8)) return { name: ranked[0].t };
+  if (ranked.length > 1) {
+    const top = ranked.filter((x) => x.s === ranked[0].s).map((x) => x.t);
+    return { error: `Tem mais de um contato parecido com "${query}": ${top.slice(0, 4).join(', ')}. Qual deles?`, candidates: top };
+  }
   const exact = uniq.filter((t) => norm(t) === q);
   if (exact.length === 1) return { name: exact[0] };
-  if (uniq.length === 1) return { name: uniq[0] };
-  const starts = uniq.filter((t) => norm(t).startsWith(q));
-  if (starts.length === 1) return { name: starts[0] };
+  if (uniq.length === 1) return { name: uniq[0] }; // a própria busca do WhatsApp achou só um (ex.: pelo número)
   if (!uniq.length) return { error: `Não achei "${query}" nos seus contatos do WhatsApp.` };
   return { error: `Mais de um contato para "${query}": ${uniq.slice(0, 5).join(', ')}. Diga o nome completo.`, candidates: uniq };
 }

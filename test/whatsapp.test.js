@@ -99,7 +99,7 @@ test('monta o aviso de demandas novas da reunião', () => {
 test('escolhe o contato certo ou recusa quando é ambíguo', () => {
   assert.equal(pickContact('joao', ['João', 'João Pedro']).name, 'João');
   assert.equal(pickContact('Mãe', ['Mãe ❤️']).name, 'Mãe ❤️');
-  assert.match(pickContact('Ana', ['Ana Paula', 'Ana Clara']).error, /Mais de um contato/);
+  assert.match(pickContact('Ana', ['Ana Paula', 'Ana Clara']).error, /mais de um contato parecido/);
   assert.match(pickContact('Zé', []).error, /Não achei/);
 });
 
@@ -114,4 +114,12 @@ test('entende a confirmação do envio por texto ou voz', () => {
   for (const t of ['manda pro João no zap que vou atrasar', 'muda o texto antes', 'qual a previsão do tempo?', '', 'envia pro Pedro']) {
     assert.equal(parseSendReply(t, ['Tata']), null, t);
   }
+});
+
+test('acha o contato por parte do nome, apelido ou erro de transcrição', () => {
+  const { pickContact: pick } = require('../src/integrations/whatsapp');
+  assert.equal(pick('Tata', ['Tata Souza', 'Tatiane Lima']).name, 'Tata Souza');
+  assert.equal(pick('tatar', ['Tata Souza']).name, 'Tata Souza');
+  assert.equal(pick('vó', ['Vó Maria', 'Vovô Zé']).name, 'Vó Maria');
+  assert.match(pick('vó', ['Vó Maria', 'Vó Lúcia']).error, /mais de um contato parecido/);
 });

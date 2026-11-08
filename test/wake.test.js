@@ -44,3 +44,15 @@ test('não ativa com frases comuns', () => {
     '[música]',
   ]) assert.equal(matchWake(fala), null, fala);
 });
+
+const { isEndPhrase, isMicOff } = require('../src/core/wake');
+
+test('reconhece quando ele quer encerrar a conversa', () => {
+  for (const t of ['Valeu!', 'Pode parar', 'Ohara, chega. Tchau.', 'obrigado, Ohara', 'É só isso', 'Tchau']) assert.ok(isEndPhrase(t), t);
+  for (const t of ['Abre o Spotify', 'Não, não, nada que você não. Eu não estava me escutando ainda porque a gente estava falando de outra coisa e tchau']) assert.ok(!isEndPhrase(t), t);
+});
+
+test('reconhece pedido para desligar o microfone', () => {
+  for (const t of ['desativa o microfone', 'quero que desative o microfone', 'para de ouvir meu microfone', 'Desliga a escuta', 'para de me escutar']) assert.ok(isMicOff(t), t);
+  for (const t of ['abre o Spotify', 'desliga o PC', 'aumenta o volume do microfone']) assert.ok(!isMicOff(t), t);
+});

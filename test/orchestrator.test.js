@@ -22,7 +22,8 @@ stub('providers/codex', { runCodex: fakeProvider('codex') });
 const { Orchestrator } = require('../src/core/orchestrator');
 const { DEFAULT_CONFIG } = require('../src/core/config');
 
-function setup(extra = {}) {
+// confirmContacts: liga a confirmação antes de mandar para contatos (o padrão é enviar na hora).
+function setup({ confirmContacts = false, ...extra } = {}) {
   calls.length = 0;
   const events = [];
   const store = (data) => ({ data, save() {} });
@@ -31,7 +32,11 @@ function setup(extra = {}) {
     chatsStore: store({ chats: [] }),
     prefsStore: store({ overrides: [] }),
     usage,
-    getConfig: () => structuredClone(DEFAULT_CONFIG),
+    getConfig: () => {
+      const c = structuredClone(DEFAULT_CONFIG);
+      c.integrations.whatsapp.confirmContacts = confirmContacts;
+      return c;
+    },
     emit: (ch, p) => events.push([ch, p]),
     ...extra,
   });
@@ -76,10 +81,51 @@ test('cancelar sem runId para todos os agentes da conversa', async () => {
   calls.forEach((c) => c.finish());
 });
 
-test('pedido para contato vira rascunho e só sai depois da confirmação', async () => {
+test('padrão: pedido para contato é enviado na hora, mesmo sem citar o WhatsApp, e ela diz para quem foi', async () => {
+  const sent = [];
+  const whatsappWeb = { send: async (to, text) => { sent.push({ to, text }); return { to: 'Vó Maria' }; } };
+  const { o } = setup({ whatsappWeb });
+  const chat = o.create('C:\\tmp');
+  const p = o.send(chat.id, { text: 'se apresenta pra minha vó', source: 'voice', runId: 'a1' });
+  await tick();
+  assert.match(calls[0].opts.systemPrompt, /ENVIA NA HORA/, 'ela sabe que pode mandar mesmo sem a palavra WhatsApp');
+  calls[0].answer = 'Vou mandar uma apresentação pra sua vó.\n[[whatsapp para="vó"]]\nOi, vó! Aqui é a Ohara, assistente do Gabriel.\n[[/whatsapp]]';
+  calls[0].finish();
+  const msg = await p;
+  assert.deepEqual(sent, [{ to: 'vó', text: 'Oi, vó! Aqui é a Ohara, assistente do Gabriel.' }]);
+  assert.equal(msg.whatsappDrafts[0].status, 'sent');
+  assert.equal(msg.text, 'Vou mandar uma apresentação pra sua vó.\n\nEnviei para Vó Maria no WhatsApp.');
+});
+
+test('padrão: se o envio falha, ela fala o motivo', async () => {
+  const whatsappWeb = { send: async () => { throw new Error('Mais de um contato para "Ana": Ana Paula, Ana Clara. Diga o nome completo.'); } };
+  const { o } = setup({ whatsappWeb });
+  const chat = o.create('C:\\tmp');
+  const p = o.send(chat.id, { text: 'manda pra Ana que já saí', runId: 'a2' });
+  await tick();
+  calls[0].answer = 'Mando já.\n[[whatsapp para="Ana"]]\nJá saí!\n[[/whatsapp]]';
+  calls[0].finish();
+  const msg = await p;
+  assert.equal(msg.whatsappDrafts[0].status, 'error');
+  assert.match(msg.text, /Não consegui enviar para Ana: Mais de um contato/);
+});
+
+test('por voz, conversa que não era com ela é ignorada em silêncio', async () => {
+  const { o } = setup();
+  const chat = o.create('C:\\tmp');
+  const p = o.send(chat.id, { text: 'Ela comprou a moto e deixou ele usar', source: 'voice', runId: 'i1' });
+  await tick();
+  assert.match(calls[0].opts.systemPrompt, /\[\[ignorar\]\]/);
+  calls[0].answer = '[[ignorar]]';
+  calls[0].finish();
+  const msg = await p;
+  assert.equal(msg.ignored, true);
+});
+
+test('com confirmação ligada, pedido para contato vira rascunho e só sai depois da confirmação', async () => {
   const sent = [];
   const whatsappWeb = { send: async (to, text) => { sent.push({ to, text }); return { to: 'João Silva' }; } };
-  const { o } = setup({ whatsappWeb });
+  const { o } = setup({ whatsappWeb, confirmContacts: true });
   const chat = o.create('C:\\tmp');
   const p = o.send(chat.id, { text: 'manda pro João no zap que vou atrasar 10 min', runId: 'w1' });
   await tick();
@@ -156,7 +202,7 @@ test('a oferta vale só para a resposta seguinte', async () => {
 async function draftChat(extra = {}) {
   const sent = [];
   const whatsappWeb = { send: async (to, text) => { sent.push({ to, text }); return { to: 'Tata Souza' }; } };
-  const { o, events } = setup({ whatsappWeb, ...extra });
+  const { o, events } = setup({ whatsappWeb, confirmContacts: true, ...extra });
   const chat = o.create('C:\\tmp');
   const p = o.send(chat.id, { text: 'envia mensagem pra Tata no meu WhatsApp se apresentando', runId: 'd1' });
   await tick();
@@ -215,7 +261,7 @@ test('"cancela" descarta o rascunho e um pedido novo segue para a IA', async () 
 test('"sim" com oferta de melhoria aberta é para a melhoria, não para o envio', async () => {
   const sent = [];
   const whatsappWeb = { send: async (to, text) => { sent.push({ to, text }); return { to }; } };
-  const { o } = setup({ whatsappWeb });
+  const { o } = setup({ whatsappWeb, confirmContacts: true });
   const chat = o.create('C:\\tmp');
   const p1 = o.send(chat.id, { text: 'manda pra Tata no zap um oi', runId: 's1' });
   await tick();

@@ -21,7 +21,7 @@ const { WhatsAppWeb } = require('./integrations/whatsapp-web');
 const system = require('./core/system');
 const { trashOldInstallers, uninstallLegacyApp } = require('./core/cleanup');
 const { NeuralTTS, NEURAL_VOICES, isNeural, cleanForSpeech, splitForSpeech, takeSpeakable } = require('./integrations/tts');
-const { matchWake } = require('./core/wake');
+const { matchWake, isEndPhrase, isMicOff } = require('./core/wake');
 
 // Desenvolvimento: CENTRAL_DATA_DIR usa outra pasta de dados (e permite rodar ao lado do app instalado).
 if (process.env.CENTRAL_DATA_DIR) app.setPath('userData', process.env.CENTRAL_DATA_DIR);
@@ -225,32 +225,45 @@ function speechStream(voice = config.voice.ttsVoice) {
 }
 
 // ---------- Conversa por voz ----------
-// "Ohara" abre a conversa: ela responde e o microfone segue aberto; tudo o que for dito vira pedido,
-// na mesma conversa, até "valeu"/"pode parar" ou alguns segundos de silêncio.
-const voiceSession = { active: false, chatId: null, timer: null };
-const END_RE = /^(valeu|obrigad[oa]|brigad[oa]|tchau|ate mais|ate logo|pode parar|para de ouvir|encerra\w*|fim da conversa|so isso|era so isso|nada nao|deixa pra la)\b/;
+// "Ohara" abre a conversa: ela responde e o microfone segue aberto para o próximo pedido, sem repetir o nome.
+// A janela para o próximo pedido só reabre depois de cada resposta e fecha em alguns segundos de silêncio;
+// conversa com outras pessoas ou TV é ignorada (a IA marca [[ignorar]]) e encerra a conversa.
+// Entre um "Ohara" e outro, a mesma conversa é reaproveitada por 30 min (mantém contexto e rascunhos).
+const voiceSession = { active: false, chatId: null, timer: null, busy: false };
+const VOICE_CHAT_REUSE_MS = 30 * 60_000;
 const GREETINGS = ['Oi, Gabriel! Pode falar.', 'Tô aqui! Manda.', 'Oi! O que você precisa?', 'Opa! Tô ouvindo.', 'Fala, Gabriel! No que eu te ajudo?'];
 
 function voiceState(state, extra = {}) {
-  if (win && !win.isDestroyed()) win.webContents.send('voice:session', { active: voiceSession.active, state, ...extra });
+  send('voice:session', { active: voiceSession.active, state, ...extra }); // janela principal e rápida
 }
 
+// Abre (ou reabre) a janela para o próximo pedido.
 function touchVoiceSession() {
   clearTimeout(voiceSession.timer);
-  const secs = Math.max(10, Number(config.voice.conversationTimeoutSec) || 40);
+  const secs = Math.max(8, Number(config.voice.conversationTimeoutSec) || 25);
   voiceSession.timer = setTimeout(() => endVoiceSession(false), secs * 1000);
 }
 
-function endVoiceSession(sayBye) {
+function endVoiceSession(sayBye, line) {
   clearTimeout(voiceSession.timer);
   if (!voiceSession.active) return;
   voiceSession.active = false;
-  if (sayBye) speak(['Até mais, Gabriel!', 'Fechou! Qualquer coisa, é só chamar.', 'Valeu! Tô por aqui se precisar.'][Math.floor(Math.random() * 3)]);
+  if (line) speak(line);
+  else if (sayBye) speak(['Até mais, Gabriel!', 'Fechou! Qualquer coisa, é só chamar.', 'Valeu! Tô por aqui se precisar.'][Math.floor(Math.random() * 3)]);
   voiceState('esperando "Ohara"');
 }
 
+function voiceChat() {
+  const prev = voiceSession.chatId && orchestrator.get(voiceSession.chatId);
+  if (prev && Date.now() - (prev.updatedAt || 0) < VOICE_CHAT_REUSE_MS) return prev;
+  const chat = orchestrator.create(config.defaultCwd, '🎙️ Conversa por voz');
+  send('chats:changed', {});
+  return chat;
+}
+
 async function voiceCommand(text) {
-  touchVoiceSession();
+  clearTimeout(voiceSession.timer); // não fecha a conversa enquanto ela pensa
+  voiceSession.busy = true;
   const chatId = voiceSession.chatId;
   showQuick({ mode: 'voiceTurn', chatId, text, inactive: true });
   voiceState('pensando…', { heard: text });
@@ -259,10 +272,36 @@ async function voiceCommand(text) {
   const answer = await orchestrator
     .send(chatId, { text, source: 'voice', onDelta: (d) => voice.push(d) })
     .catch((err) => ({ text: '', error: err.message }));
+  voiceSession.busy = false;
   if (!voiceSession.active || voiceSession.chatId !== chatId) return;
+  if (answer.ignored) {
+    // Não era com ela (conversa com outra pessoa, TV...): fica quieta e encerra; precisa de "Ohara" de novo.
+    voiceLog(`fala ignorada (não era um pedido): "${text}"`);
+    endVoiceSession(false);
+    return;
+  }
   voice.end(answer.text || (answer.error ? 'Deu um erro aqui. Dá uma olhada na janela.' : 'Pronto.'));
   touchVoiceSession();
   voiceState('ouvindo o próximo pedido');
+}
+
+// Salva parte da configuração (da tela de Ajustes ou de um comando de voz) e aplica na hora.
+function updateConfig(partial) {
+  // Ignora o marcador "••••••" que a interface mostra no lugar do segredo.
+  for (const p of SECRETS) if (getIn(partial, p) === '••••••') setIn(partial, p, undefined);
+  const user = encryptSecrets(deepMerge(readUserConfig(), partial));
+  fs.writeFileSync(configFile, JSON.stringify(user, null, 2));
+  config = deepMerge(DEFAULT_CONFIG, decryptSecrets(structuredClone(user)));
+  if (partial.hotkeys) registerHotkeys();
+  if (partial.meetings) meetings.start();
+  if (partial.integrations?.calendarIcsUrl !== undefined) calendar.refresh(true);
+  if (partial.integrations?.slack) slack.users = null;
+  const pub = publicConfig();
+  if (partial.voice) {
+    send('config:changed', pub); // a janela liga/desliga a escuta
+    trayRebuild(); // atualiza o "Ouvir 'Ohara'" da bandeja
+  }
+  return pub;
 }
 
 // Registro da escuta (%APPDATA%\Ohara\escuta.log): o que o microfone captou, o que o Whisper entendeu e o que ela fez.
@@ -300,12 +339,21 @@ async function decideVoice(wavBytes) {
   }
   if (!text || /^\[.*\]$|^\(.*\)$/.test(text)) return { text, action: 'nada' }; // [música], (silêncio)
 
+  const wake = matchWake(text);
+  const cmd = wake ? wake.command : text;
+
+  // "Ohara, desativa o microfone" funciona com ou sem conversa aberta.
+  if ((voiceSession.active || wake) && isMicOff(cmd)) {
+    if (!voiceSession.active) voiceSession.active = true;
+    endVoiceSession(false, 'Pronto, desliguei a escuta. Pra ligar de novo, é em Ajustes, Voz.');
+    updateConfig({ voice: { wakeWord: false } });
+    return { text, action: 'escuta desligada' };
+  }
+
   if (!voiceSession.active) {
-    const wake = matchWake(text);
     if (!wake) return { text, action: 'ignorado' };
-    const chat = orchestrator.create(config.defaultCwd, '🎙️ Conversa por voz');
+    const chat = voiceChat();
     Object.assign(voiceSession, { active: true, chatId: chat.id });
-    send('chats:changed', {});
     if (wake.wakeOnly) {
       speak(GREETINGS[Math.floor(Math.random() * GREETINGS.length)]);
       showQuick({ mode: 'voiceTurn', chatId: chat.id, text: '', inactive: true });
@@ -313,23 +361,26 @@ async function decideVoice(wavBytes) {
       voiceState('ouvindo o pedido');
       return { text, action: 'ativada' };
     }
-    voiceCommand(wake.command);
+    if (isEndPhrase(cmd)) {
+      endVoiceSession(true);
+      return { text, action: 'encerrada' };
+    }
+    voiceCommand(cmd);
     return { text, action: 'pedido' };
   }
 
-  // Conversa aberta: "valeu"/"pode parar" encerra; o resto é pedido (sem precisar dizer "Ohara" de novo).
-  const plain = text.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/^[^a-z0-9]+/, '');
-  if (END_RE.test(plain) && plain.split(/\s+/).length <= 5) {
+  // Conversa aberta: "valeu"/"chega"/"pode parar" encerra; o resto é pedido (sem precisar dizer "Ohara" de novo).
+  if (isEndPhrase(cmd)) {
     endVoiceSession(true);
     return { text, action: 'encerrada' };
   }
-  const wake = matchWake(text);
-  const cmd = wake ? wake.command : text;
   if (!cmd) {
     speak('Oi! Pode falar.');
     touchVoiceSession();
     return { text, action: 'ativada' };
   }
+  // Enquanto ela ainda responde, outra fala na sala não vira um segundo pedido (a não ser chamando "Ohara").
+  if (voiceSession.busy && !wake) return { text, action: 'ignorado (ela ainda estava respondendo)' };
   voiceCommand(cmd);
   return { text, action: 'pedido' };
 }
@@ -578,6 +629,16 @@ function createTray() {
         ...automations.snapshot().routines.slice(0, 6).map((r) => ({ label: `${r.icon} ${r.name}`, click: () => { showView('chat'); automations.runRoutine(r.id); } })),
         { type: 'separator' },
         {
+          // Liga/desliga a escuta contínua (microfone) sem abrir a janela.
+          label: 'Ouvir "Ohara" (microfone)',
+          type: 'checkbox',
+          checked: !!config.voice.wakeWord,
+          click: (item) => {
+            if (!item.checked) endVoiceSession(false);
+            updateConfig({ voice: { wakeWord: item.checked } });
+          },
+        },
+        {
           label: 'Iniciar com o Windows',
           type: 'checkbox',
           checked: app.getLoginItemSettings().openAtLogin,
@@ -657,18 +718,7 @@ function registerIpc() {
   // Configuração
   handle('config:get', () => publicConfig());
   handle('app:version', () => app.getVersion());
-  handle('config:set', (partial) => {
-    // Ignora o marcador "••••••" que a interface mostra no lugar do segredo.
-    for (const p of SECRETS) if (getIn(partial, p) === '••••••') setIn(partial, p, undefined);
-    const user = encryptSecrets(deepMerge(readUserConfig(), partial));
-    fs.writeFileSync(configFile, JSON.stringify(user, null, 2));
-    config = deepMerge(DEFAULT_CONFIG, decryptSecrets(structuredClone(user)));
-    if (partial.hotkeys) registerHotkeys();
-    if (partial.meetings) meetings.start();
-    if (partial.integrations?.calendarIcsUrl !== undefined) calendar.refresh(true);
-    if (partial.integrations?.slack) slack.users = null;
-    return publicConfig();
-  });
+  handle('config:set', (partial) => updateConfig(partial));
   handle('hotkeys:status', () => hotkeyStatus);
 
   // Conversas

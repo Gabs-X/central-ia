@@ -100,7 +100,7 @@ const DEFAULT_CONFIG = {
 
   voice: {
     ttsRate: '+15%', // velocidade da voz neural (+0% = normal)
-    conversationTimeoutSec: 40, // conversa por voz encerra após esse silêncio
+    conversationTimeoutSec: 25, // depois de cada resposta, espera o próximo pedido por esse tempo
     ttsVoice: 'pt-BR-FranciscaNeural', // voz neural (internet); 'Microsoft Maria Desktop' = voz do Windows, offline
     speakReplies: false,
     whisperModel: 'base', // tiny | base | small (maior = mais preciso e mais lento)

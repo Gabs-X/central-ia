@@ -120,7 +120,14 @@ class WhatsAppWeb {
   }
 
   async #openChatByName(query) {
-    const titles = await this.#search(query);
+    // Nome parcial ou mal transcrito: se a busca não achar nada, tenta a primeira palavra e depois só o começo dela.
+    const first = String(query).trim().split(/\s+/)[0] || query;
+    const tries = [...new Set([query, first, first.slice(0, 4), first.slice(0, 3)])].filter((t) => t.length >= 2);
+    let titles = [];
+    for (const t of tries) {
+      titles = await this.#search(t);
+      if (titles.length) break;
+    }
     const pick = pickContact(query, titles);
     if (pick.error) throw new Error(pick.error);
     const clicked = await this.#js(`(() => {

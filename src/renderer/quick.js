@@ -41,6 +41,8 @@ central.onQuickOpen(async (p) => {
     st.chatId = p.chatId;
     q.input.value = p.text || '';
     q.input.placeholder = '🎙️ Estou ouvindo… pode falar';
+    q.answer.hidden = false;
+    document.getElementById('q-end-voice').hidden = false;
     if (p.text) {
       q.answer.hidden = false;
       q.text.innerHTML = '<span class="typing"><i></i><i></i><i></i></span>';
@@ -48,6 +50,7 @@ central.onQuickOpen(async (p) => {
     return fit();
   }
   st.voiceTurn = false;
+  document.getElementById('q-end-voice').hidden = true;
   if (st.busy && p.mode === 'ask' && !p.text) {
     q.input.focus();
     return fit(); // mantém a resposta em andamento
@@ -202,3 +205,14 @@ document.querySelectorAll('.q-chips button').forEach((b) =>
 );
 document.getElementById('q-copy').addEventListener('click', () => central.copy(st.buf));
 document.getElementById('q-open').addEventListener('click', () => st.chatId && central.quickOpenInMain(st.chatId));
+
+// Encerra a conversa por voz: ela para de tratar o que ouve como pedido (precisa de "Ohara" de novo).
+document.getElementById('q-end-voice').addEventListener('click', async () => {
+  await central.voiceEnd();
+  document.getElementById('q-end-voice').hidden = true;
+  q.input.placeholder = 'Conversa por voz encerrada. Diga "Ohara" para chamar de novo.';
+  fit();
+});
+central.onVoiceSession?.(({ active }) => {
+  if (!active) document.getElementById('q-end-voice').hidden = true;
+});

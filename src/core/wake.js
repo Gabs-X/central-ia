@@ -52,4 +52,21 @@ function matchWake(text) {
   return null;
 }
 
-module.exports = { matchWake, soundsLikeOhara };
+const plainWords = (text) => norm(text).replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(Boolean);
+
+// "valeu", "tchau", "Ohara, chega. Tchau.", "pode parar": encerra a conversa por voz.
+// Só em falas curtas, para não encerrar por causa de um "tchau" no meio de uma conversa longa.
+const END_RE = /\b(valeu|obrigad[oa]|brigad[oa]|tchau|ate mais|ate logo|pode parar|chega|encerra\w*|fim da conversa|so isso|era so isso|deixa pra la|nada nao)\b/;
+function isEndPhrase(text) {
+  const ws = plainWords(text);
+  return ws.length > 0 && ws.length <= 8 && END_RE.test(ws.join(' '));
+}
+
+// "desativa o microfone", "para de me ouvir", "desliga a escuta": desliga a escuta contínua.
+const MIC_OFF_RE = /\b(desativ\w*|deslig\w*|para de|parar de|pare de|nao quero que)\b.*\b(microfone|escuta\w*|ouvir|me ouvir|escutar|me escutar|ouvindo|escutando)\b/;
+function isMicOff(text) {
+  const ws = plainWords(text);
+  return ws.length > 0 && ws.length <= 12 && MIC_OFF_RE.test(ws.join(' '));
+}
+
+module.exports = { matchWake, soundsLikeOhara, isEndPhrase, isMicOff };

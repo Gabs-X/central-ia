@@ -43,6 +43,7 @@ contextBridge.exposeInMainWorld('central', {
   voiceEnd: inv('voice:end'),
   voiceLog: inv('voice:log'),
   onVoiceSession: on('voice:session'),
+  onConfigChanged: on('config:changed'),
   openPath: inv('shell:openPath'),
   openExternal: inv('shell:openExternal'),
   copy: inv('clipboard:write'),

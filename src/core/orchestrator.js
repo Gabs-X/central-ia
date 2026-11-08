@@ -16,11 +16,30 @@ const WHATSAPP_NOTE = [
   '[[whatsapp para="Nome do contato como ele falou, ou número com DDI"]]',
   'texto da mensagem',
   '[[/whatsapp]]',
-  'Fora do bloco, diga em uma frase o que preparou. A Ohara mostra a mensagem e envia assim que o Gabriel confirmar (no botão Enviar ou respondendo "confirmado"/"envia", por texto ou voz); nunca diga que já enviou.',
+  'Fora do bloco, diga em uma frase curta o que vai mandar. A Ohara procura o contato e envia, e acrescenta à sua resposta se deu certo; não diga que já enviou.',
 ].join('\n');
 
-const VOICE_NOTE =
-  'Este pedido veio por voz e a sua resposta será lida em voz alta. Responda como numa conversa falada: curto (1 a 3 frases), direto, sem markdown, listas, tabelas, links ou emojis. Se fizer uma ação, diga em uma frase o que fez.';
+// Sempre que o envio para contatos está disponível: ela precisa saber que pode, mesmo quando o pedido não cita "WhatsApp".
+const CONTACTS_NOTE = (confirm) => [
+  'Você consegue mandar mensagens de WhatsApp para os contatos do Gabriel, pelo WhatsApp Web dele.',
+  'Quando ele pedir para mandar, enviar, avisar ou falar algo para alguém (mesmo sem dizer "WhatsApp", ex.: "manda pra vó que eu chego tarde", "envia a mensagem"),',
+  'escreva a mensagem como se fosse o Gabriel (primeira pessoa, no tom dele; se ele pedir que você se apresente, fale como a Ohara, assistente dele) e coloque no fim da resposta exatamente:',
+  '[[whatsapp para="nome do contato do jeito que ele falou"]]',
+  'texto da mensagem',
+  '[[/whatsapp]]',
+  'Não peça o nome completo: a Ohara procura o contato pelo nome mesmo parcial, apelido ou mal transcrito, e só pergunta se houver mais de um parecido.',
+  confirm
+    ? 'A Ohara mostra a mensagem e envia quando ele confirmar ("confirmado", "envia" ou o botão Enviar).'
+    : 'A Ohara ENVIA NA HORA: não peça confirmação, não diga que precisa de botão e não pergunte "tem certeza". Ele já pediu.',
+  'Se ele disser "envia a mensagem" sobre uma mensagem que você já preparou nesta conversa, repita o bloco com o mesmo texto.',
+].join('\n');
+
+const VOICE_NOTE = [
+  'Este pedido veio por voz e a sua resposta será lida em voz alta. Responda como numa conversa falada: curto (1 a 3 frases), direto, sem markdown, listas, tabelas, links ou emojis. Se fizer uma ação, diga em uma frase o que fez.',
+  'O microfone fica aberto e a transcrição pode pegar conversa de outras pessoas ou TV. Se esta fala claramente não for um pedido para você',
+  '(gente conversando entre si, frase solta sem sentido, comentário que não é com você), responda só [[ignorar]] e nada mais. Na dúvida, se parecer um pedido, atenda.',
+].join('\n');
+const IGNORE_RE = /\[\[ignorar\]\]/i;
 
 // Na conversa por voz, o que não exige raciocínio vai para o modelo rápido (resposta em menos tempo).
 const VOICE_FAST = new Set(['rapida', 'geral', 'escrita', 'sistema']);
@@ -40,6 +59,7 @@ function systemPrompt(config, cwd) {
     `Diretório de trabalho atual: ${cwd}. Os repositórios ficam em ${config.workspaceRoot}.`,
     'Para ações no sistema use PowerShell (Start-Process para abrir programas e sites, Get-ChildItem, etc.).',
     'Antes de qualquer ação destrutiva ou difícil de desfazer (apagar arquivos, desinstalar, git push, force, formatar), pare e peça confirmação explícita na resposta em vez de executar.',
+    'Fazer o que ele pediu diretamente (mandar uma mensagem, abrir algo, pesquisar) não precisa de confirmação: faça.',
     'Ao terminar uma tarefa, diga em uma ou duas frases o que foi feito.',
     '',
     'Seu jeito: você é resolutiva. Seu objetivo é resolver o problema do Gabriel, não só responder. Tente de verdade antes de dizer que não dá:',
@@ -307,7 +327,13 @@ class Orchestrator {
       this.emit('chat:event', { chatId, runId, ...ev });
     };
 
-    const extra = [source === 'voice' ? VOICE_NOTE : '', parallel ? PARALLEL_NOTE : '', askWhatsApp ? WHATSAPP_NOTE : ''].filter(Boolean).join('\n');
+    const confirmContacts = !!config.integrations.whatsapp?.confirmContacts;
+    const extra = [
+      source === 'voice' ? VOICE_NOTE : '',
+      parallel ? PARALLEL_NOTE : '',
+      this.whatsappWeb ? CONTACTS_NOTE(confirmContacts) : '',
+      askWhatsApp ? WHATSAPP_NOTE : '',
+    ].filter(Boolean).join('\n');
     const common = {
       prompt: context + request,
       cwd,
@@ -349,7 +375,14 @@ class Orchestrator {
     assistant.tokens = result.tokens;
     // Rascunho para contato vale mesmo quando o pedido não citou o WhatsApp ("envie a mensagem").
     const hasDraft = !!this.whatsappWeb && /\[\[whatsapp\s+para/i.test(assistant.text);
-    if ((askWhatsApp || hasDraft) && assistant.text && !assistant.error) await this.#handleWhatsApp(assistant, { toSelf: askWhatsApp });
+    // Por voz, conversa que não era com ela ("[[ignorar]]"): não responde nada.
+    if (source === 'voice' && IGNORE_RE.test(assistant.text) && !hasDraft) {
+      assistant.ignored = true;
+      assistant.text = '(ignorado: não parecia um pedido para a Ohara)';
+    }
+    if ((askWhatsApp || hasDraft) && assistant.text && !assistant.error) {
+      await this.#handleWhatsApp(assistant, { toSelf: askWhatsApp, chat, autoSend: !confirmContacts });
+    }
 
     // Oferta de automelhoria: guarda para o próximo "sim" e tira a marcação do texto.
     const offer = assistant.text.match(IMPROVE_RE);
@@ -410,15 +443,29 @@ class Orchestrator {
     return assistant;
   }
 
-  // Contato → rascunho para confirmar; sem rascunho → a resposta vai para o próprio Gabriel.
-  async #handleWhatsApp(assistant, { toSelf = true } = {}) {
+  // Contato → envia na hora (ou deixa para confirmar, se ele ligou a confirmação); sem contato → vai para o próprio Gabriel.
+  async #handleWhatsApp(assistant, { toSelf = true, chat = null, autoSend = true } = {}) {
     const { text, drafts } = extractDrafts(assistant.text);
     if (drafts.length) {
       assistant.text = text || 'Mensagem pronta para enviar:';
       assistant.whatsappDrafts = drafts.map((d) => ({ ...d, status: 'pending' }));
       if (!this.whatsappWeb) {
         for (const d of assistant.whatsappDrafts) Object.assign(d, { status: 'error', error: 'Envio para contatos indisponível.' });
+        return;
       }
+      if (!autoSend || !chat) return;
+      const lines = [];
+      for (let i = 0; i < assistant.whatsappDrafts.length; i++) {
+        const d = assistant.whatsappDrafts[i];
+        try {
+          const sent = await this.confirmWhatsApp(chat.id, assistant.id, i);
+          lines.push(`Enviei para ${sent.sentTo || d.to} no WhatsApp.`);
+        } catch (err) {
+          lines.push(`Não consegui enviar para ${d.to}: ${err.message}`);
+        }
+      }
+      // A resposta já dizia o que ia mandar; acrescenta o resultado de verdade (é o que ela fala por voz).
+      assistant.text = `${assistant.text}\n\n${lines.join('\n')}`.trim();
       return;
     }
     if (!toSelf) return;
