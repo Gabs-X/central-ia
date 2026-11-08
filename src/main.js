@@ -19,6 +19,7 @@ const { Whisper } = require('./integrations/whisper');
 const { WhatsApp, formatTasksMessage } = require('./integrations/whatsapp');
 const { WhatsAppWeb } = require('./integrations/whatsapp-web');
 const system = require('./core/system');
+const { trashOldInstallers, uninstallLegacyApp } = require('./core/cleanup');
 
 // Desenvolvimento: CENTRAL_DATA_DIR usa outra pasta de dados (e permite rodar ao lado do app instalado).
 if (process.env.CENTRAL_DATA_DIR) app.setPath('userData', process.env.CENTRAL_DATA_DIR);
@@ -341,6 +342,28 @@ function enableAutoStartOnce() {
   try { fs.writeFileSync(marker, new Date().toISOString()); } catch {}
 }
 
+// Primeira execução de cada versão instalada: remove a antiga "Central IA" (se sobrou) e manda
+// para a Lixeira os instaladores/portáteis de versões anteriores (Downloads, Área de Trabalho, pasta de saída).
+async function cleanupOldVersionsOnce() {
+  if (!app.isPackaged) return;
+  const marker = path.join(dataDir, `limpeza-${app.getVersion()}`);
+  if (fs.existsSync(marker)) return;
+  try { fs.writeFileSync(marker, new Date().toISOString()); } catch {}
+  const uninstalled = uninstallLegacyApp({ programsDir: path.join(process.env.LOCALAPPDATA || '', 'Programs'), currentExe: process.execPath });
+  const removed = await trashOldInstallers({
+    version: app.getVersion(),
+    dirs: [app.getPath('downloads'), app.getPath('desktop'), config.outputDir],
+    keep: [process.execPath, process.env.PORTABLE_EXECUTABLE_FILE],
+    trash: (p) => shell.trashItem(p),
+  });
+  if (removed.length || uninstalled) {
+    const parts = [];
+    if (uninstalled) parts.push('a antiga Central IA foi desinstalada');
+    if (removed.length) parts.push(`${removed.length} instalador${removed.length > 1 ? 'es antigos foram' : ' antigo foi'} para a Lixeira`);
+    notify(`Ohara ${app.getVersion()}`, `Versões antigas removidas: ${parts.join(' e ')}.`);
+  }
+}
+
 function createTray() {
   tray = new Tray(nativeImage.createFromPath(path.join(__dirname, 'assets', 'tray.png')));
   tray.setToolTip('Ohara');
@@ -593,6 +616,7 @@ app.whenReady().then(() => {
   session.defaultSession.setPermissionCheckHandler((wc, permission) => permission === 'media' && !!wc?.getURL().startsWith('file:'));
 
   enableAutoStartOnce();
+  setTimeout(() => cleanupOldVersionsOnce().catch(() => {}), 5000);
   registerIpc();
   createWindow();
   createQuick();
