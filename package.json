@@ -1,7 +1,7 @@
 {
-  "name": "central-ia",
-  "version": "0.3.4",
-  "description": "Central de IA para o Windows: orquestra Claude Code e Codex com roteamento de modelo e gestão de cota.",
+  "name": "ohara",
+  "version": "0.4.0",
+  "description": "Ohara: assistente de IA para o Windows que orquestra Claude Code e Codex, com roteamento de modelo e gestão de cota.",
   "main": "src/main.js",
   "private": true,
   "scripts": {
@@ -12,7 +12,7 @@
   },
   "build": {
     "appId": "com.gabsx.central-ia",
-    "productName": "Central IA",
+    "productName": "Ohara",
     "directories": {
       "output": "dist"
     },
@@ -30,11 +30,11 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Central IA",
-      "artifactName": "Central-IA-Setup-${version}.${ext}"
+      "shortcutName": "Ohara",
+      "artifactName": "Ohara-Setup-${version}.${ext}"
     },
     "portable": {
-      "artifactName": "Central-IA-Portatil-${version}.${ext}"
+      "artifactName": "Ohara-Portatil-${version}.${ext}"
     },
     "afterPack": "build/after-pack.js"
   },

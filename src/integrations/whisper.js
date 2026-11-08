@@ -8,7 +8,7 @@ const MODEL_URL = (name) => `https://huggingface.co/ggerganov/whisper.cpp/resolv
 
 class Whisper {
   constructor({ dir, getConfig }) {
-    this.dir = dir; // %APPDATA%/central-ia/whisper
+    this.dir = dir; // %APPDATA%/Ohara/whisper
     this.getConfig = getConfig;
     this.installing = null;
   }
@@ -48,7 +48,7 @@ class Whisper {
   }
 
   async #download(url, dest, onProgress) {
-    const res = await fetch(url, { headers: { 'User-Agent': 'central-ia' }, redirect: 'follow' });
+    const res = await fetch(url, { headers: { 'User-Agent': 'ohara' }, redirect: 'follow' });
     if (!res.ok) throw new Error(`download falhou (${res.status}): ${url}`);
     const total = Number(res.headers.get('content-length')) || 0;
     fs.mkdirSync(path.dirname(dest), { recursive: true });
@@ -65,7 +65,7 @@ class Whisper {
   }
 
   async #latestZipUrl() {
-    const res = await fetch('https://api.github.com/repos/ggml-org/whisper.cpp/releases?per_page=10', { headers: { 'User-Agent': 'central-ia', Accept: 'application/vnd.github+json' } });
+    const res = await fetch('https://api.github.com/repos/ggml-org/whisper.cpp/releases?per_page=10', { headers: { 'User-Agent': 'ohara', Accept: 'application/vnd.github+json' } });
     if (!res.ok) throw new Error(`GitHub respondeu ${res.status}`);
     for (const rel of await res.json()) {
       const a = rel.assets?.find((x) => x.name === 'whisper-bin-x64.zip');

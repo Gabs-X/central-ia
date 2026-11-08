@@ -247,7 +247,7 @@ central.onDone(async ({ chatId, message, source }) => {
   if (source === 'quick') return refreshList(); // a janela rápida mostra a resposta
   if (el.speak.checked && message.text) central.speak(message.text);
   if (document.hidden || !document.hasFocus()) {
-    new Notification('Central IA', { body: (message.text || message.error || 'Tarefa concluída').slice(0, 140) });
+    new Notification('Ohara', { body: (message.text || message.error || 'Tarefa concluída').slice(0, 140) });
   }
   refreshList();
 });

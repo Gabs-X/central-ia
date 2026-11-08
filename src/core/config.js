@@ -1,12 +1,12 @@
 // Configuração padrão. O usuário pode sobrescrever qualquer chave em
-// %APPDATA%/central-ia/config.json (o app cria o arquivo na primeira execução).
+// %APPDATA%/Ohara/config.json (o app cria o arquivo na primeira execução).
 
 const DEFAULT_CONFIG = {
   // Pasta padrão de trabalho dos agentes.
   workspaceRoot: 'C:\\repositorios',
   defaultCwd: 'C:\\Users\\gabri',
   // Onde salvar arquivos gerados para você (exportações de reunião etc.).
-  outputDir: 'C:\\Users\\gabri\\Claude\\Central-IA',
+  outputDir: 'C:\\Users\\gabri\\Claude\\Ohara',
 
   hotkeys: {
     toggle: 'CommandOrControl+Space', // mostra/esconde a janela principal

@@ -62,17 +62,17 @@ test('escolha manual tem prioridade', () => {
 });
 
 const projects = [
-  { name: 'central-ia', path: 'C:/repositorios/Projetos-Pessoais/central-ia' },
+  { name: 'ohara', path: 'C:/repositorios/Projetos-Pessoais/ohara' },
   { name: 'taverna-bot', path: 'C:/repositorios/Projetos-Pessoais/taverna-bot' },
 ];
 
 test('pedido de mudança no app citando o projeto não vai para o Haiku', () => {
-  const p = 'vamos fazer um ajuste e uma melhora em todos os butoes e funcoes da central IA e revisar se tudo esta funcionando como deveria melhorando e otimizando tudo';
+  const p = 'vamos fazer um ajuste e uma melhora em todos os butoes e funcoes da ohara e revisar se tudo esta funcionando como deveria melhorando e otimizando tudo';
   const d = r(p, { projects });
   assert.equal(d.category, 'codigo_complexo');
   assert.equal(d.model, 'opus');
-  assert.equal(d.project.name, 'central-ia');
-  assert.notEqual(r('melhore as funcionalidades e botoes da central IA', { projects }).model, 'haiku');
+  assert.equal(d.project.name, 'ohara');
+  assert.notEqual(r('melhore as funcionalidades e botoes da ohara', { projects }).model, 'haiku');
 });
 
 test('continuação curta segue a categoria da conversa', () => {

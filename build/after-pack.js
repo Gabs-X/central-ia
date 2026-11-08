@@ -15,8 +15,8 @@ exports.default = async function afterPack(context) {
     'file-version': version,
     'product-version': version,
     'version-string': {
-      ProductName: 'Central IA',
-      FileDescription: 'Central IA',
+      ProductName: 'Ohara',
+      FileDescription: 'Ohara',
       CompanyName: 'Gabs-X',
       LegalCopyright: 'Gabs-X',
     },

@@ -20,6 +20,21 @@ const system = require('./core/system');
 
 // Desenvolvimento: CENTRAL_DATA_DIR usa outra pasta de dados (e permite rodar ao lado do app instalado).
 if (process.env.CENTRAL_DATA_DIR) app.setPath('userData', process.env.CENTRAL_DATA_DIR);
+else migrateLegacyData();
+
+// O app se chamava "Central IA" e guardava os dados em %APPDATA%\central-ia.
+// Na primeira execução como Ohara, copia essa pasta para a nova (a antiga fica intacta).
+function migrateLegacyData() {
+  const target = app.getPath('userData');
+  const legacy = path.join(app.getPath('appData'), 'central-ia');
+  if (fs.existsSync(target) || !fs.existsSync(legacy)) return;
+  try {
+    fs.cpSync(legacy, target, { recursive: true });
+  } catch (err) {
+    console.error('Falha ao migrar os dados da Central IA; usando a pasta antiga.', err);
+    app.setPath('userData', legacy);
+  }
+}
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -187,7 +202,7 @@ function createWindow() {
     minWidth: 780,
     minHeight: 540,
     backgroundColor: '#0f1117',
-    title: 'Central IA',
+    title: 'Ohara',
     icon: ICON,
     autoHideMenuBar: true,
     show: false,
@@ -292,7 +307,7 @@ function showView(view) {
 
 function createTray() {
   tray = new Tray(nativeImage.createFromPath(path.join(__dirname, 'assets', 'tray.png')));
-  tray.setToolTip('Central IA');
+  tray.setToolTip('Ohara');
   const rebuild = () =>
     tray.setContextMenu(
       Menu.buildFromTemplate([

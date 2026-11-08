@@ -92,7 +92,7 @@ function countHits(text, words) {
   return hits;
 }
 
-// Acha um projeto citado pelo nome ("central ia" → central-ia).
+// Acha um projeto citado pelo nome ("taverna bot" → taverna-bot).
 function findProject(text, projects = []) {
   const flat = text.replace(/[-_]/g, ' ');
   let found = null;

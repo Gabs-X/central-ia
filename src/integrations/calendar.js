@@ -130,7 +130,7 @@ class Calendar {
     }
     if (!force && Date.now() - this.fetchedAt < 15 * 60_000) return;
     try {
-      const res = await fetch(this.url, { headers: { 'User-Agent': 'central-ia' } });
+      const res = await fetch(this.url, { headers: { 'User-Agent': 'ohara' } });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const text = await res.text();
       const from = new Date();

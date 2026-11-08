@@ -91,7 +91,7 @@ async function claudeOnce({ prompt, schema, model, effort, config, usage, signal
 }
 
 async function codexOnce({ prompt, schema, effort, config, usage, signal }) {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'central-ia-'));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ohara-'));
   const outFile = path.join(tmp, 'saida.txt');
   const { cmd, pre } = resolveCodex(config);
   let u = {};

@@ -1,4 +1,4 @@
-# Central IA
+# Ohara
 
 App desktop (Electron) que usa as **suas assinaturas** do Claude Code e do Codex como um assistente para o PC inteiro.
 Para cada pedido, ela escolhe a IA, o modelo e o nível de esforço mais adequados e acompanha a cota de cada assinatura.
@@ -60,7 +60,7 @@ Enquanto você digita, a barra abaixo do campo mostra para onde o pedido vai. O 
 
 ## Configuração
 
-Os dados ficam em `%APPDATA%\central-ia\`:
+Os dados ficam em `%APPDATA%\Ohara\`. Na primeira execução, os dados da antiga Central IA (`%APPDATA%\central-ia\`) são copiados para lá.
 
 - `config.json`: sobrescreve os valores de `src/core/config.js` (atalho, modelos, limites de cota, voz, pasta raiz).
 - `chats.json`: conversas.
@@ -100,8 +100,8 @@ npm run dist
 
 Isso gera, na pasta `dist\`:
 
-- `Central-IA-Setup-<versão>.exe`: instalador com atalho na área de trabalho e no menu Iniciar.
-- `Central-IA-Portatil-<versão>.exe`: roda direto, sem instalar.
+- `Ohara-Setup-<versão>.exe`: instalador com atalho na área de trabalho e no menu Iniciar.
+- `Ohara-Portatil-<versão>.exe`: roda direto, sem instalar.
 
 O ícone é aplicado pelo `build/after-pack.js` (rcedit), porque a assinatura do electron-builder exige permissão de link simbólico no Windows.
 Os executáveis não são assinados, então o SmartScreen pode avisar na primeira execução: clique em "Mais informações" e depois em "Executar assim mesmo".

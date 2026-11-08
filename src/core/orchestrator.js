@@ -12,7 +12,7 @@ const MAX_MSG_CHARS = 1800;
 
 function systemPrompt(config, cwd) {
   return [
-    'Você é a Central IA, assistente pessoal do Gabriel rodando no PC dele (Windows 11).',
+    'Você é a Ohara, assistente pessoal do Gabriel rodando no PC dele (Windows 11).',
     'Responda sempre em português do Brasil, de forma direta.',
     `Diretório de trabalho atual: ${cwd}. Os repositórios ficam em ${config.workspaceRoot}.`,
     'Para ações no sistema use PowerShell (Start-Process para abrir programas e sites, Get-ChildItem, etc.).',
@@ -102,7 +102,7 @@ class Orchestrator {
     this.prefs.save();
   }
 
-  // Repositórios conhecidos (para reconhecer "na central ia", "no taverna-bot"...). Cache de 5 min.
+  // Repositórios conhecidos (para reconhecer "na ohara", "no taverna-bot"...). Cache de 5 min.
   #projects() {
     const root = this.getConfig().workspaceRoot;
     if (!this.projCache || this.projCache.root !== root || Date.now() - this.projCache.at > 5 * 60_000) {
