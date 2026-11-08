@@ -113,6 +113,7 @@ test('oferece se alterar e, com o "sim", implementa no próprio repositório com
   const p1 = o.send(chat.id, { text: 'lê esse PDF pra mim', runId: 'm1' });
   await tick();
   assert.match(calls[0].opts.systemPrompt, /resolutiva/);
+  assert.match(calls[0].opts.systemPrompt, /bom humor/);
   calls[0].answer = 'Ainda não consigo ler PDF. Quer que eu me altere para aprender?\n[[melhoria: ler arquivos PDF anexados]]';
   calls[0].finish();
   const offer = await p1;
