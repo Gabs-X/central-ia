@@ -159,7 +159,7 @@ function quotaChart(container, history, budget) {
   const pts = history.filter((h) => h.t >= since);
   const svg = svgEl('svg', { width: W, height: H, role: 'img', 'aria-label': 'Uso da janela de 5 horas nas últimas 48 horas' });
   if (pts.length < 2) {
-    container.innerHTML = '<p class="muted small">O histórico começa a aparecer depois de algumas horas com a Central aberta (uma amostra a cada 15 min).</p>';
+    container.innerHTML = '<p class="muted small">O histórico começa a aparecer depois de algumas horas com a Ohara aberta (uma amostra a cada 15 min).</p>';
     return;
   }
   const t0 = pts[0].t;

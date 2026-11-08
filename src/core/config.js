@@ -95,7 +95,7 @@ const DEFAULT_CONFIG = {
     speakReplies: false,
     whisperModel: 'base', // tiny | base | small (maior = mais preciso e mais lento)
     language: 'pt',
-    wakeWord: false, // escuta contínua: diga "Central, ..." (precisa do Whisper)
+    wakeWord: false, // escuta contínua: diga "Ohara, ..." (precisa do Whisper)
     autoSendVoice: true, // na janela rápida, envia assim que transcreve
   },
 };

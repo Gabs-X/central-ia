@@ -511,7 +511,7 @@ function registerIpc() {
   handle('whisper:status', () => whisper.status());
   handleSafe('whisper:install', () => whisper.install((p) => send('whisper:progress', p)));
   handleSafe('whisper:transcribe', async (wavBytes) => {
-    const file = path.join(os.tmpdir(), `central-voz-${Date.now()}.wav`);
+    const file = path.join(os.tmpdir(), `ohara-voz-${Date.now()}.wav`);
     fs.writeFileSync(file, Buffer.from(wavBytes));
     try {
       return await whisper.transcribe(file);

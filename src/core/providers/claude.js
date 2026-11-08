@@ -22,7 +22,7 @@ function claudeEnv(config) {
 
 function friendlyError(msg) {
   if (/not logged in|please run \/login/i.test(msg || '')) {
-    return 'O Claude não está logado na pasta usada pela Central. Confira em Ajustes → Geral → "Pasta de login do Claude" (a conta pessoal fica em ~/.claude-pessoal).';
+    return 'O Claude não está logado na pasta usada pela Ohara. Confira em Ajustes → Geral → "Pasta de login do Claude" (a conta pessoal fica em ~/.claude-pessoal).';
   }
   return msg;
 }

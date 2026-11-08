@@ -41,7 +41,7 @@ async function renderAutomations() {
 
     <section class="section">
       <div class="section-head"><h2>Agendamentos</h2><button class="btn primary small-btn" id="new-schedule">+ Novo agendamento</button></div>
-      <p class="muted small">Rodam sozinhos enquanto a Central estiver aberta (deixe "Iniciar com o Windows" ligado na bandeja). Funções automáticas respeitam o orçamento de cota.</p>
+      <p class="muted small">Rodam sozinhos enquanto a Ohara estiver aberta (deixe "Iniciar com o Windows" ligado na bandeja). Funções automáticas respeitam o orçamento de cota.</p>
       <table class="table">
         <thead><tr><th></th><th>Nome</th><th>Quando</th><th>Faz</th><th></th></tr></thead>
         <tbody>${d.schedules.map((s) => `
@@ -136,7 +136,7 @@ function editSchedule(s = null) {
       <label>O que fazer<select id="s-action">${actions.map(([k, v]) => `<option value="${esc(k)}" ${k === cur ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></label>
       <label>Dias<div class="days">${WEEKDAY_NAMES.map((n, i) => `<label class="day"><input type="checkbox" value="${i}" ${days.includes(i) ? 'checked' : ''}><span>${n}</span></label>`).join('')}</div></label>
       <label>Horários (separe por vírgula)<input id="s-times" value="${esc((s?.times || ['09:00']).join(', '))}" placeholder="09:00, 14:30"></label>
-      <label class="check"><input type="checkbox" id="s-catch" ${s?.catchUp ? 'checked' : ''}> Se o PC estava desligado no horário, rodar quando a Central abrir (até 4 h depois)</label>
+      <label class="check"><input type="checkbox" id="s-catch" ${s?.catchUp ? 'checked' : ''}> Se o PC estava desligado no horário, rodar quando a Ohara abrir (até 4 h depois)</label>
     </div>
     <div class="modal-actions">
       ${s ? '<button class="btn danger-btn" id="s-del">Apagar</button><span class="spacer"></span>' : ''}

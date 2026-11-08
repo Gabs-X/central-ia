@@ -33,7 +33,7 @@ async function renderSettings() {
 
     <section class="section">
       <h2>💬 Slack</h2>
-      <p class="muted small">Precisa de um <b>token de usuário</b> (xoxp-…) de um app Slack seu com os escopos <code>search:read</code>, <code>users:read</code>, <code>im:write</code> e <code>chat:write</code>. Com ele a Central envia cobranças por DM e importa menções como demandas. O token fica criptografado neste PC.</p>
+      <p class="muted small">Precisa de um <b>token de usuário</b> (xoxp-…) de um app Slack seu com os escopos <code>search:read</code>, <code>users:read</code>, <code>im:write</code> e <code>chat:write</code>. Com ele a Ohara envia cobranças por DM e importa menções como demandas. O token fica criptografado neste PC.</p>
       <div class="row"><input id="sl-token" type="password" placeholder="xoxp-..." value="${I.slack.tokenSet ? '••••••' : ''}"><button class="btn small-btn" id="sl-save">Salvar</button>${I.slack.tokenSet ? '<button class="btn small-btn" id="sl-clear">Remover</button>' : ''}</div>
       <p>${!sl.configured ? ok(false, 'não conectado') : sl.ok ? ok(true, `conectado como ${sl.name} (${sl.team})`) : ok(false, sl.error)}</p>
       ${sl.ok ? '<button class="btn small-btn" id="sl-import">Importar menções agora</button> <span class="muted small">Para importar sozinho, ligue o agendamento “Importar menções do Slack” em Automações.</span>' : ''}
@@ -48,7 +48,7 @@ async function renderSettings() {
         <button class="btn small-btn" id="w-install">${ws.installed ? 'Reinstalar/trocar modelo' : 'Instalar'}</button>
       </div>
       <p id="w-progress" class="small muted"></p>
-      <label class="check"><input type="checkbox" id="w-wake" ${cfg.voice.wakeWord ? 'checked' : ''} ${ws.installed ? '' : 'disabled'}> Escuta contínua: diga <b>“Central, …”</b> e ela responde na janela rápida <span class="muted small">(<span id="listen-state">—</span>; usa CPU a cada fala)</span></label>
+      <label class="check"><input type="checkbox" id="w-wake" ${cfg.voice.wakeWord ? 'checked' : ''} ${ws.installed ? '' : 'disabled'}> Escuta contínua: diga <b>“Ohara, …”</b> e ela responde na janela rápida <span class="muted small">(<span id="listen-state">—</span>; usa CPU a cada fala)</span></label>
       <label class="check"><input type="checkbox" id="w-autosend" ${cfg.voice.autoSendVoice ? 'checked' : ''}> Na janela rápida, enviar assim que terminar de transcrever</label>
       <label class="check"><input type="checkbox" id="w-speak" ${cfg.voice.speakReplies ? 'checked' : ''}> Ler respostas em voz alta (voz ${esc(cfg.voice.ttsVoice)})</label>
     </section>
@@ -57,7 +57,7 @@ async function renderSettings() {
       <h2>⌨️ Atalhos globais</h2>
       <p class="muted small">Formato do Electron: <code>CommandOrControl+Alt+V</code>, <code>Alt+Space</code>…</p>
       <table class="table compact"><tbody>${[
-        ['toggle', 'Mostrar/esconder a Central'],
+        ['toggle', 'Mostrar/esconder a Ohara'],
         ['quick', 'Janela rápida'],
         ['clipboard', 'Janela rápida com o que você copiou'],
         ['voice', 'Falar (gravar e transcrever)'],

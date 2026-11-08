@@ -128,7 +128,7 @@ async function toggleVoice() {
   const ws = await central.whisperStatus();
   if (!ws.installed) {
     q.answer.hidden = false;
-    q.text.innerHTML = '<p>Para falar com a Central, instale o Whisper em <b>Ajustes → Voz</b> (uma vez só).</p>';
+    q.text.innerHTML = '<p>Para falar com a Ohara, instale o Whisper em <b>Ajustes → Voz</b> (uma vez só).</p>';
     fit();
     return;
   }

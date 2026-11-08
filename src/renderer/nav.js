@@ -28,7 +28,9 @@ central.onView((view) => {
   setView(view);
 });
 
-// Escuta contínua ("Central, ...") roda nesta janela, mesmo escondida.
+// Escuta contínua ("Ohara, ...") roda nesta janela, mesmo escondida.
+// Variações comuns na transcrição do Whisper.
+const WAKE_WORDS = ['ohara', 'o hara', 'oh hara', 'o-hara', 'oara', 'ohhara', 'orara'];
 let stopListening = null;
 async function applyListening(cfg) {
   const want = !!cfg.voice.wakeWord;
@@ -36,7 +38,7 @@ async function applyListening(cfg) {
     const ws = await central.whisperStatus();
     if (!ws.installed) return;
     stopListening = Voice.listen({
-      wakeWord: 'central',
+      wakeWords: WAKE_WORDS,
       onCommand: (text) => central.quickAsk ? central.quickAsk(text) : null,
       onState: (s) => {
         const dot = document.getElementById('listen-state');

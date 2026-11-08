@@ -107,10 +107,13 @@ const Voice = (() => {
 
   // Escuta contínua: grava cada fala, transcreve e chama onCommand quando começa com a palavra de ativação.
   // O Whisper só roda quando há fala; o resto do tempo é só leitura do volume do microfone.
-  function listen({ wakeWord = 'central', onCommand, onState }) {
+  // wakeWords aceita variações, porque o Whisper nem sempre escreve o nome do mesmo jeito.
+  function listen({ wakeWords = ['ohara'], onCommand, onState }) {
     let active = true;
     let current = null;
-    const wake = wakeWord.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    const wake = `(?:${wakeWords
+      .map((w) => w.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+      .join('|')})`;
     (async () => {
       while (active) {
         try {
