@@ -52,7 +52,8 @@ const ALIASES = {
   obs: { app: 'OBS Studio' },
 };
 
-const OPEN = /^(?:abr[ae]|abrir|abre ai|inici[ae]|iniciar|execut[ae]|executar|ligue|liga|rod[ae])\s+(?:(?:o|a|os|as|meu|minha)\s+)?(.+)$/;
+// "abriu"/"abri": o Whisper às vezes transcreve "abre" assim.
+const OPEN = /^(?:abr[ae]|abrir|abriu|abri|abre ai|inici[ae]|iniciar|execut[ae]|executar|ligue|liga|rod[ae])\s+(?:(?:o|a|os|as|meu|minha)\s+)?(.+)$/;
 const GOOGLE = [
   /^(?:pesquis\w*|busc\w*|procur\w*|googl\w*)\s+(?:(?:no|pelo|na)\s+google|na internet|na web)\s+(?:(?:por|sobre|o que e|o que sao)\s+)?(.+)$/,
   /^(?:pesquis\w*|busc\w*|procur\w*)\s+(.+?)\s+(?:no|pelo)\s+google$/,

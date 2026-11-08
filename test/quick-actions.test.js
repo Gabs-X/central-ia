@@ -45,3 +45,7 @@ test('escolhe o app certo do menu Iniciar', () => {
 test('monta a URL de busca do Google', () => {
   assert.equal(googleUrl('pão de queijo & café'), 'https://www.google.com/search?q=p%C3%A3o%20de%20queijo%20%26%20caf%C3%A9');
 });
+
+test('aceita "abriu", como o Whisper às vezes transcreve "abre"', () => {
+  assert.deepEqual(parseQuickAction('abriu o Spotify.'), { type: 'open', target: 'spotify' });
+});

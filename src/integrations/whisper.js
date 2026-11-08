@@ -4,6 +4,21 @@ const fs = require('fs');
 const path = require('path');
 const { execFile, spawn } = require('child_process');
 
+function findWhisperExe(root) {
+  const found = { cli: null, main: null };
+  const walk = (d) => {
+    if (!fs.existsSync(d)) return;
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) walk(p);
+      else if (/^whisper-cli\.exe$/i.test(e.name)) found.cli ||= p;
+      else if (/^main\.exe$/i.test(e.name)) found.main ||= p;
+    }
+  };
+  walk(root);
+  return found.cli || found.main;
+}
+
 const MODEL_URL = (name) => `https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-${name}.bin`;
 
 class Whisper {
@@ -21,20 +36,10 @@ class Whisper {
     return path.join(this.dir, 'bin');
   }
 
+  // Prefere o whisper-cli.exe. Nas versões novas do whisper.cpp, o main.exe é só um aviso de
+  // "binário obsoleto" que sai com código 1; ele só serve em versões antigas, sem whisper-cli.
   #findExe() {
-    const walk = (d) => {
-      if (!fs.existsSync(d)) return null;
-      for (const e of fs.readdirSync(d, { withFileTypes: true })) {
-        const p = path.join(d, e.name);
-        if (e.isFile() && /^(whisper-cli|main)\.exe$/i.test(e.name)) return p;
-        if (e.isDirectory()) {
-          const r = walk(p);
-          if (r) return r;
-        }
-      }
-      return null;
-    };
-    return walk(this.#binDir());
+    return findWhisperExe(this.#binDir());
   }
 
   #modelPath() {
@@ -114,11 +119,15 @@ class Whisper {
       p.stderr.on('data', (d) => (err += d.toString('utf8')));
       p.on('error', reject);
       p.on('close', (code) => {
-        if (code !== 0) return reject(new Error(err.split('\n').filter(Boolean).pop() || `whisper saiu com código ${code}`));
+        if (code !== 0) {
+          // Alguns erros vão para a saída normal (ex.: aviso de binário obsoleto).
+          const last = (err + '\n' + out).split('\n').map((l) => l.trim()).filter(Boolean).pop();
+          return reject(new Error(last ? `Whisper: ${last}` : `whisper saiu com código ${code}`));
+        }
         resolve(out.replace(/\[[^\]]*\]/g, '').replace(/\s+/g, ' ').trim());
       });
     });
   }
 }
 
-module.exports = { Whisper };
+module.exports = { Whisper, findWhisperExe };

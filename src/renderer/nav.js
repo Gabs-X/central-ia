@@ -30,7 +30,7 @@ central.onView((view) => {
 
 // Escuta contínua ("Ohara, ...") roda nesta janela, mesmo escondida.
 // Variações comuns na transcrição do Whisper.
-const WAKE_WORDS = ['ohara', 'o hara', 'oh hara', 'o-hara', 'oara', 'ohhara', 'orara'];
+const WAKE_WORDS = ['ohara', 'o hara', 'oh hara', 'o-hara', 'oara', 'ohhara', 'orara', 'o herra', 'o hera', 'ohera', 'oera', 'o arra', 'oarra'];
 let stopListening = null;
 async function applyListening(cfg) {
   const want = !!cfg.voice.wakeWord;
