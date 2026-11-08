@@ -20,6 +20,8 @@ const { WhatsApp, formatTasksMessage } = require('./integrations/whatsapp');
 const { WhatsAppWeb } = require('./integrations/whatsapp-web');
 const system = require('./core/system');
 const { trashOldInstallers, uninstallLegacyApp } = require('./core/cleanup');
+const { NeuralTTS, NEURAL_VOICES, isNeural, cleanForSpeech, splitForSpeech, takeSpeakable } = require('./integrations/tts');
+const { matchWake } = require('./core/wake');
 
 // Desenvolvimento: CENTRAL_DATA_DIR usa outra pasta de dados (e permite rodar ao lado do app instalado).
 if (process.env.CENTRAL_DATA_DIR) app.setPath('userData', process.env.CENTRAL_DATA_DIR);
@@ -149,6 +151,172 @@ const send = (channel, payload) => {
   for (const w of [win, quick]) if (w && !w.isDestroyed()) w.webContents.send(channel, payload);
 };
 
+// ---------- Fala ----------
+// Voz neural: sintetiza trecho a trecho e manda cada MP3 para a janela principal tocar em fila
+// (o primeiro trecho começa a tocar enquanto os seguintes ainda são gerados).
+// Sem internet ou com voz do Windows escolhida, usa a voz SAPI (offline).
+let speechId = 0;
+async function speak(text, voice = config.voice.ttsVoice) {
+  const s = speechStream(voice);
+  s.end(text);
+}
+
+/**
+ * Fala em fluxo: push() recebe a resposta enquanto ela é gerada e cada frase completa já vai para a voz;
+ * end(textoFinal) fala o que sobrou. O primeiro trecho é curto para começar a falar o quanto antes.
+ * A síntese de um trecho acontece enquanto o anterior toca.
+ */
+function speechStream(voice = config.voice.ttsVoice) {
+  stopSpeaking();
+  const id = ++speechId;
+  const rate = config.voice.ttsRate || '+15%';
+  const neural = isNeural(voice);
+  let buf = '';
+  let pushed = 0;
+  let sent = 0;
+  let failed = false;
+  let chain = Promise.resolve();
+  let synthChain = Promise.resolve();
+  neuralTts.cleanup();
+
+  const queuePiece = (raw) => {
+    const pieces = splitForSpeech(cleanForSpeech(raw));
+    for (const piece of pieces) {
+      pushed++;
+      // Sintetiza em sequência, à frente do que está tocando, e entrega na ordem.
+      const ready = (synthChain = synthChain.then(() => (id === speechId && !failed ? neuralTts.synth(piece, voice, rate).catch(() => null) : null)));
+      chain = chain.then(async () => {
+        const file = await ready;
+        if (id !== speechId) return;
+        if (!file) {
+          if (!failed && sent === 0) system.speak(raw, 'Microsoft Maria Desktop'); // sem internet: voz do Windows
+          failed = true;
+          return;
+        }
+        if (failed) return;
+        if (win && !win.isDestroyed()) win.webContents.send('tts:play', { id, file, first: sent === 0 });
+        sent++;
+      });
+    }
+  };
+
+  return {
+    push(delta) {
+      if (!neural || id !== speechId || failed) return;
+      buf += delta;
+      let cut;
+      while ((cut = takeSpeakable(buf, pushed === 0 ? 25 : 120))) {
+        queuePiece(cut.piece);
+        buf = cut.rest;
+      }
+    },
+    end(fullText) {
+      if (id !== speechId) return;
+      if (!neural) return system.speak(fullText, voice);
+      if (pushed === 0) {
+        buf = '';
+        if (String(fullText || '').trim()) queuePiece(fullText); // nada veio em fluxo (ex.: ação local)
+      } else if (buf.trim()) {
+        queuePiece(buf);
+        buf = '';
+      }
+    },
+  };
+}
+
+// ---------- Conversa por voz ----------
+// "Ohara" abre a conversa: ela responde e o microfone segue aberto; tudo o que for dito vira pedido,
+// na mesma conversa, até "valeu"/"pode parar" ou alguns segundos de silêncio.
+const voiceSession = { active: false, chatId: null, timer: null };
+const END_RE = /^(valeu|obrigad[oa]|brigad[oa]|tchau|ate mais|ate logo|pode parar|para de ouvir|encerra\w*|fim da conversa|so isso|era so isso|nada nao|deixa pra la)\b/;
+const GREETINGS = ['Oi, Gabriel! Pode falar.', 'Oi! Tô ouvindo.', 'Pode falar, Gabriel.', 'Oi! O que você precisa?'];
+
+function voiceState(state, extra = {}) {
+  if (win && !win.isDestroyed()) win.webContents.send('voice:session', { active: voiceSession.active, state, ...extra });
+}
+
+function touchVoiceSession() {
+  clearTimeout(voiceSession.timer);
+  const secs = Math.max(10, Number(config.voice.conversationTimeoutSec) || 40);
+  voiceSession.timer = setTimeout(() => endVoiceSession(false), secs * 1000);
+}
+
+function endVoiceSession(sayBye) {
+  clearTimeout(voiceSession.timer);
+  if (!voiceSession.active) return;
+  voiceSession.active = false;
+  if (sayBye) speak('Até mais, Gabriel!');
+  voiceState('esperando "Ohara"');
+}
+
+async function voiceCommand(text) {
+  touchVoiceSession();
+  const chatId = voiceSession.chatId;
+  showQuick({ mode: 'voiceTurn', chatId, text, inactive: true });
+  voiceState('pensando…', { heard: text });
+  // Começa a falar assim que a primeira frase da resposta fica pronta.
+  const voice = speechStream();
+  const answer = await orchestrator
+    .send(chatId, { text, source: 'voice', onDelta: (d) => voice.push(d) })
+    .catch((err) => ({ text: '', error: err.message }));
+  if (!voiceSession.active || voiceSession.chatId !== chatId) return;
+  voice.end(answer.text || (answer.error ? 'Deu um erro aqui. Dá uma olhada na janela.' : 'Pronto.'));
+  touchVoiceSession();
+  voiceState('ouvindo o próximo pedido');
+}
+
+// Recebe cada fala gravada pela escuta contínua.
+async function onVoiceHeard(wavBytes) {
+  const file = path.join(os.tmpdir(), `ohara-escuta-${Date.now()}.wav`);
+  fs.writeFileSync(file, Buffer.from(wavBytes));
+  let text;
+  try {
+    text = (await whisper.transcribe(file, { prompt: 'Ohara' })).trim();
+  } finally {
+    fs.rmSync(file, { force: true });
+  }
+  if (!text || /^\[.*\]$|^\(.*\)$/.test(text)) return { text, action: 'nada' }; // [música], (silêncio)
+
+  if (!voiceSession.active) {
+    const wake = matchWake(text);
+    if (!wake) return { text, action: 'ignorado' };
+    const chat = orchestrator.create(config.defaultCwd, '🎙️ Conversa por voz');
+    Object.assign(voiceSession, { active: true, chatId: chat.id });
+    send('chats:changed', {});
+    if (wake.wakeOnly) {
+      speak(GREETINGS[Math.floor(Math.random() * GREETINGS.length)]);
+      showQuick({ mode: 'voiceTurn', chatId: chat.id, text: '', inactive: true });
+      touchVoiceSession();
+      voiceState('ouvindo o pedido');
+      return { text, action: 'ativada' };
+    }
+    voiceCommand(wake.command);
+    return { text, action: 'pedido' };
+  }
+
+  // Conversa aberta: "valeu"/"pode parar" encerra; o resto é pedido (sem precisar dizer "Ohara" de novo).
+  const plain = text.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/^[^a-z0-9]+/, '');
+  if (END_RE.test(plain) && plain.split(/\s+/).length <= 5) {
+    endVoiceSession(true);
+    return { text, action: 'encerrada' };
+  }
+  const wake = matchWake(text);
+  const cmd = wake ? wake.command : text;
+  if (!cmd) {
+    speak('Oi! Pode falar.');
+    touchVoiceSession();
+    return { text, action: 'ativada' };
+  }
+  voiceCommand(cmd);
+  return { text, action: 'pedido' };
+}
+
+function stopSpeaking() {
+  speechId++;
+  system.stopSpeaking();
+  if (win && !win.isDestroyed()) win.webContents.send('tts:stop');
+}
+
 // Notificação do Windows; ao clicar, abre a tela certa.
 function notify(title, body, view = null, chatId = null) {
   if (!Notification.isSupported()) return;
@@ -177,6 +345,7 @@ const calendar = new Calendar({ getConfig });
 const github = new GitHub({ getConfig });
 const slack = new Slack({ getConfig });
 const whisper = new Whisper({ dir: path.join(dataDir, 'whisper'), getConfig });
+const neuralTts = new NeuralTTS({ dir: path.join(os.tmpdir(), 'ohara-fala') });
 const insights = new Insights({ meetings, store: insightsStore, usage, getConfig, emit: send, notify, calendar });
 let trayRebuild = () => {};
 const automations = new Automations({
@@ -297,8 +466,12 @@ function showQuick(payload = { mode: 'ask' }) {
   const { x, y, width } = display.workArea;
   const [w] = quick.getSize();
   quick.setPosition(Math.round(x + (width - w) / 2), Math.round(y + 140));
-  quick.show();
-  quick.focus();
+  // Conversa por voz: aparece sem roubar o foco do que você está fazendo.
+  if (payload.inactive) quick.showInactive();
+  else {
+    quick.show();
+    quick.focus();
+  }
   quick.webContents.send('quick:open', payload);
 }
 
@@ -520,8 +693,9 @@ function registerIpc() {
   });
   handle('screen:capture', () => captureScreen());
   handle('voice:dictate', () => system.startVoiceTyping());
-  handle('tts:speak', (text) => system.speak(text, config.voice.ttsVoice));
-  handle('tts:stop', () => system.stopSpeaking());
+  handle('tts:speak', (text, voice) => speak(text, voice));
+  handle('tts:stop', () => stopSpeaking());
+  handle('tts:voices', () => NEURAL_VOICES);
   handle('shell:openPath', (p) => shell.openPath(p));
   handle('shell:openExternal', (url) => (/^(https?|mailto):/.test(url) ? shell.openExternal(url) : null));
   handle('clipboard:write', (text) => clipboard.writeText(String(text || '')));
@@ -589,6 +763,8 @@ function registerIpc() {
   // Janela rápida
   handle('quick:hide', () => quick?.hide());
   handle('quick:ask', (text) => showQuick({ mode: 'ask', text, autoSend: true }));
+  handleSafe('voice:heard', (wavBytes) => onVoiceHeard(wavBytes));
+  handle('voice:end', () => endVoiceSession(false));
   handle('app:loginItem', (on) => {
     if (on !== undefined && app.isPackaged) app.setLoginItemSettings({ openAtLogin: !!on, args: ['--hidden'] });
     return { enabled: app.getLoginItemSettings().openAtLogin, available: app.isPackaged };

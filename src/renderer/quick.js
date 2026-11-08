@@ -34,6 +34,20 @@ function reset() {
 
 central.onQuickOpen(async (p) => {
   st.config = await central.getConfig();
+  // Conversa por voz: o processo principal envia o pedido e fala a resposta; aqui só acompanha.
+  if (p.mode === 'voiceTurn') {
+    reset();
+    st.voiceTurn = true;
+    st.chatId = p.chatId;
+    q.input.value = p.text || '';
+    q.input.placeholder = '🎙️ Estou ouvindo… pode falar';
+    if (p.text) {
+      q.answer.hidden = false;
+      q.text.innerHTML = '<span class="typing"><i></i><i></i><i></i></span>';
+    }
+    return fit();
+  }
+  st.voiceTurn = false;
   if (st.busy && p.mode === 'ask' && !p.text) {
     q.input.focus();
     return fit(); // mantém a resposta em andamento
@@ -115,7 +129,7 @@ central.onDone(({ chatId, message }) => {
   const t = message.tokens;
   q.meta.textContent = t ? `${message.model} · ${Math.round(((t.input || 0) + (t.cached || 0) + (t.output || 0)) / 100) / 10}k tokens` : message.model || '';
   q.tools.innerHTML = '';
-  if (st.config?.voice?.speakReplies && st.buf) central.speak(st.buf);
+  if (st.config?.voice?.speakReplies && st.buf && !st.voiceTurn) central.speak(st.buf); // na conversa por voz quem fala é o processo principal
   fit();
 });
 

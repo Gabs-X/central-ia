@@ -5,6 +5,8 @@ const DEFAULT_CONFIG = {
   // Pasta padrão de trabalho dos agentes.
   workspaceRoot: 'C:\\repositorios',
   defaultCwd: 'C:\\Users\\gabri',
+  // Código-fonte da própria Ohara: onde ela se altera quando você aceita uma melhoria.
+  selfRepo: 'C:\\repositorios\\Projetos-Pessoais\\ohara',
   // Onde salvar arquivos gerados para você (exportações de reunião etc.).
   outputDir: 'C:\\Users\\gabri\\Claude\\Ohara',
 
@@ -97,7 +99,9 @@ const DEFAULT_CONFIG = {
   },
 
   voice: {
-    ttsVoice: 'Microsoft Maria Desktop',
+    ttsRate: '+15%', // velocidade da voz neural (+0% = normal)
+    conversationTimeoutSec: 40, // conversa por voz encerra após esse silêncio
+    ttsVoice: 'pt-BR-FranciscaNeural', // voz neural (internet); 'Microsoft Maria Desktop' = voz do Windows, offline
     speakReplies: false,
     whisperModel: 'base', // tiny | base | small (maior = mais preciso e mais lento)
     language: 'pt',

@@ -28,22 +28,37 @@ central.onView((view) => {
   setView(view);
 });
 
-// Escuta contínua ("Ohara, ...") roda nesta janela, mesmo escondida.
-// Variações comuns na transcrição do Whisper.
-const WAKE_WORDS = ['ohara', 'o hara', 'oh hara', 'o-hara', 'oara', 'ohhara', 'orara', 'o herra', 'o hera', 'ohera', 'oera', 'o arra', 'oarra'];
+// Escuta contínua roda nesta janela, mesmo escondida. Cada fala vai para o processo principal,
+// que reconhece "Ohara", abre a conversa por voz e mantém o microfone aberto para os próximos pedidos.
 let stopListening = null;
+const heardLog = []; // últimas falas ouvidas (aparecem ao passar o mouse no estado, em Ajustes → Voz)
+function showListenState(s) {
+  const dot = document.getElementById('listen-state');
+  if (!dot) return;
+  dot.textContent = s;
+  dot.title = heardLog.length ? `Últimas falas ouvidas:\n${heardLog.join('\n')}` : '';
+}
+central.onVoiceSession(({ state }) => showListenState(state));
+
 async function applyListening(cfg) {
   const want = !!cfg.voice.wakeWord;
   if (want && !stopListening) {
     const ws = await central.whisperStatus();
     if (!ws.installed) return;
     stopListening = Voice.listen({
-      wakeWords: WAKE_WORDS,
-      onCommand: (text) => central.quickAsk ? central.quickAsk(text) : null,
-      onState: (s) => {
-        const dot = document.getElementById('listen-state');
-        if (dot) dot.textContent = s;
+      onHeard: async (bytes) => {
+        const r = await central.voiceHeard(bytes);
+        if (!r.ok) throw new Error(r.error);
+        const { text, action } = r.data;
+        if (text) {
+          heardLog.unshift(`${new Date().toLocaleTimeString('pt-BR')} · ${action} · “${text}”`);
+          heardLog.length = Math.min(heardLog.length, 8);
+        }
+        return { state: action === 'ignorado' || action === 'nada' ? 'ouvindo' : action };
       },
+      onState: showListenState,
+      // Não ouve a própria voz enquanto lê uma resposta.
+      isSpeaking: () => typeof tts !== 'undefined' && !!tts.audio,
     });
   } else if (!want && stopListening) {
     stopListening();

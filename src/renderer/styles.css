@@ -233,3 +233,4 @@ textarea { width: 100%; resize: none; border: 0; background: none; outline: none
 @media (max-width: 1000px) { .board, .grid2 { grid-template-columns: 1fr; } }
 .tag.local { color: #25d3a6; border-color: color-mix(in srgb, #25d3a6 40%, transparent); }
 .route-badge b.local { color: #25d3a6; }
+.improve-offer { margin-top: 8px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 8px 12px; border: 1px dashed var(--accent); border-radius: 10px; font-size: 13px; }

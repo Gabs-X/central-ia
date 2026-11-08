@@ -62,9 +62,18 @@ async function renderSettings() {
         <button class="btn small-btn" id="w-install">${ws.installed ? 'Reinstalar/trocar modelo' : 'Instalar'}</button>
       </div>
       <p id="w-progress" class="small muted"></p>
-      <label class="check"><input type="checkbox" id="w-wake" ${cfg.voice.wakeWord ? 'checked' : ''} ${ws.installed ? '' : 'disabled'}> Escuta contínua: diga <b>“Ohara, …”</b> e ela responde na janela rápida <span class="muted small">(<span id="listen-state">—</span>; usa CPU a cada fala)</span></label>
+      <label class="check"><input type="checkbox" id="w-wake" ${cfg.voice.wakeWord ? 'checked' : ''} ${ws.installed ? '' : 'disabled'}> Escuta contínua: diga <b>“Ohara”</b>, ela responde e a conversa fica aberta (fale os pedidos sem repetir o nome; “valeu” encerra) <span class="muted small">(<span id="listen-state">—</span>; passe o mouse para ver as últimas falas ouvidas)</span></label>
       <label class="check"><input type="checkbox" id="w-autosend" ${cfg.voice.autoSendVoice ? 'checked' : ''}> Na janela rápida, enviar assim que terminar de transcrever</label>
-      <label class="check"><input type="checkbox" id="w-speak" ${cfg.voice.speakReplies ? 'checked' : ''}> Ler respostas em voz alta (voz ${esc(cfg.voice.ttsVoice)})</label>
+      <label class="check"><input type="checkbox" id="w-speak" ${cfg.voice.speakReplies ? 'checked' : ''}> Ler respostas em voz alta</label>
+      <label>Voz da Ohara<div class="row">
+        <select id="w-tts">${[
+          ['pt-BR-FranciscaNeural', 'Francisca · feminina, natural'],
+          ['pt-BR-AntonioNeural', 'Antonio · masculina, natural'],
+          ['Microsoft Maria Desktop', 'Maria · voz do Windows (robótica, funciona sem internet)'],
+        ].map(([v, l]) => `<option value="${v}" ${cfg.voice.ttsVoice === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+        <button class="btn small-btn" id="w-tts-test">▶ Ouvir</button>
+      </div></label>
+      <p class="muted small">As vozes naturais são as mesmas do “Ler em voz alta” do Edge: o texto vai para o serviço de fala da Microsoft. Sem internet, ela usa a voz do Windows.</p>
     </section>
 
     <section class="section">
@@ -181,6 +190,10 @@ async function renderSettings() {
     applyListening(c);
   });
   $s('#w-autosend').addEventListener('change', (e) => save({ voice: { autoSendVoice: e.target.checked } }));
+  $s('#w-tts').addEventListener('change', (e) => save({ voice: { ttsVoice: e.target.value } }, 'Voz salva.'));
+  $s('#w-tts-test').addEventListener('click', () =>
+    central.speak('Oi, Gabriel! Eu sou a Ohara. Abri o Spotify pra você e já deixei o resumo da reunião no painel de demandas.', $s('#w-tts').value),
+  );
   $s('#w-speak').addEventListener('change', (e) => {
     save({ voice: { speakReplies: e.target.checked } });
     const chk = document.getElementById('speak-replies');

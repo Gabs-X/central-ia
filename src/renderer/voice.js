@@ -105,41 +105,132 @@ const Voice = (() => {
     return r.data;
   }
 
-  // Escuta contínua: grava cada fala, transcreve e chama onCommand quando começa com a palavra de ativação.
-  // O Whisper só roda quando há fala; o resto do tempo é só leitura do volume do microfone.
-  // wakeWords aceita variações, porque o Whisper nem sempre escreve o nome do mesmo jeito.
-  function listen({ wakeWords = ['ohara'], onCommand, onState }) {
+  // Escuta contínua: o microfone fica aberto o tempo todo e cada fala (detectada pelo volume) vira um WAV
+  // enviado ao processo principal, que transcreve e decide (chamada, pedido da conversa ou nada).
+  // Não fica surda enquanto o Whisper trabalha: as falas entram numa fila.
+  // Ignora o que for captado enquanto a própria Ohara está falando (isSpeaking).
+  function listen({ onHeard, onState, isSpeaking = () => false }) {
     let active = true;
-    let current = null;
-    const wake = `(?:${wakeWords
-      .map((w) => w.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-      .join('|')})`;
-    (async () => {
-      while (active) {
+    let stream = null;
+    let ctx = null;
+    let proc = null;
+    let src = null;
+    let keepAlive = null;
+    const queue = [];
+    let busy = false;
+
+    const PRE_ROLL_MS = 600; // guarda um pouco antes do início da fala (para não cortar o "O" de "Ohara")
+    const END_SILENCE_MS = 900;
+    const MIN_SPEECH_MS = 280;
+    const MAX_SEGMENT_MS = 15000;
+
+    async function drain() {
+      if (busy) return;
+      busy = true;
+      while (active && queue.length) {
+        const bytes = queue.shift();
+        onState?.('transcrevendo…');
         try {
-          onState?.('ouvindo');
-          current = await record({ silenceMs: 1200, maxMs: 20000 });
-          const bytes = await current.done;
-          if (!active) break;
-          if (!bytes) continue;
-          onState?.('transcrevendo');
-          const text = await transcribe(bytes);
-          const norm = text.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-          const m = norm.match(new RegExp(`^\\W*${wake}\\b[\\s,.:!-]*`));
-          if (m) {
-            const cmd = text.slice(m[0].length).trim();
-            if (cmd) onCommand(cmd);
-          }
+          const r = await onHeard(bytes);
+          if (r?.state) onState?.(r.state);
         } catch (err) {
           onState?.(`erro: ${err.message}`);
-          await new Promise((r) => setTimeout(r, 5000));
         }
       }
-      onState?.('desligada');
-    })();
+      busy = false;
+      if (active && !queue.length) onState?.('ouvindo');
+    }
+
+    async function start() {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+      ctx = new AudioContext();
+      src = ctx.createMediaStreamSource(stream);
+      proc = ctx.createScriptProcessor(2048, 1, 1);
+      const rate = ctx.sampleRate;
+      const chunkMs = (2048 / rate) * 1000;
+      const preRoll = [];
+      let seg = null; // { chunks, startedAt, lastVoice, speechMs }
+      let noise = 0.004; // nível de ruído ambiente, aprendido aos poucos
+      let speakingUntil = 0;
+
+      proc.onaudioprocess = (e) => {
+        const data = new Float32Array(e.inputBuffer.getChannelData(0));
+        let sum = 0;
+        for (let i = 0; i < data.length; i += 2) sum += data[i] * data[i];
+        const rms = Math.sqrt(sum / (data.length / 2));
+        const now = performance.now();
+
+        // Enquanto a Ohara fala (e logo depois), não grava: senão ela ouve a própria voz.
+        if (isSpeaking()) speakingUntil = now + 700;
+        if (now < speakingUntil) {
+          seg = null;
+          preRoll.length = 0;
+          return;
+        }
+
+        const threshold = Math.max(0.01, noise * 3.2);
+        const voiced = rms > threshold;
+        if (!seg && !voiced) noise = noise * 0.97 + rms * 0.03;
+
+        if (!seg) {
+          preRoll.push(data);
+          while (preRoll.length * chunkMs > PRE_ROLL_MS) preRoll.shift();
+          if (voiced) {
+            seg = { chunks: [...preRoll], startedAt: now, lastVoice: now, speechMs: 0 };
+            preRoll.length = 0;
+          }
+          return;
+        }
+
+        seg.chunks.push(data);
+        if (voiced) {
+          seg.lastVoice = now;
+          seg.speechMs += chunkMs;
+        }
+        if (now - seg.lastVoice > END_SILENCE_MS || now - seg.startedAt > MAX_SEGMENT_MS) {
+          const done = seg;
+          seg = null;
+          if (done.speechMs >= MIN_SPEECH_MS) {
+            queue.push(wav(downsample(done.chunks, rate)));
+            drain();
+          }
+        }
+      };
+      src.connect(proc);
+      proc.connect(ctx.destination);
+      onState?.('ouvindo');
+
+      // O Windows às vezes suspende o áudio da janela escondida ou troca o microfone: religa sozinho.
+      keepAlive = setInterval(async () => {
+        if (!active) return;
+        if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+        const track = stream.getAudioTracks()[0];
+        if (!track || track.readyState === 'ended') {
+          stopAudio();
+          start().catch((err) => onState?.(`erro: ${err.message}`));
+        }
+      }, 3000);
+    }
+
+    function stopAudio() {
+      clearInterval(keepAlive);
+      try { proc?.disconnect(); src?.disconnect(); } catch { /* já desligado */ }
+      stream?.getTracks().forEach((t) => t.stop());
+      ctx?.close().catch(() => {});
+      stream = ctx = proc = src = null;
+    }
+
+    start().catch((err) => {
+      onState?.(`erro no microfone: ${err.message}`);
+      // tenta de novo (ex.: microfone ainda não liberado ao iniciar com o Windows)
+      setTimeout(() => active && start().catch(() => {}), 10000);
+    });
+
     return () => {
       active = false;
-      current?.cancel();
+      queue.length = 0;
+      stopAudio();
+      onState?.('desligada');
     };
   }
 

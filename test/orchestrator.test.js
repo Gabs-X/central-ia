@@ -106,3 +106,48 @@ test('ação local responde sem chamar a IA', async () => {
   assert.equal(msg.provider, 'local');
   assert.deepEqual(opened, ['https://www.google.com/search?q=receita%20de%20bolo']);
 });
+
+test('oferece se alterar e, com o "sim", implementa no próprio repositório com o modelo forte', async () => {
+  const { o } = setup();
+  const chat = o.create('C:\\tmp');
+  const p1 = o.send(chat.id, { text: 'lê esse PDF pra mim', runId: 'm1' });
+  await tick();
+  assert.match(calls[0].opts.systemPrompt, /resolutiva/);
+  calls[0].answer = 'Ainda não consigo ler PDF. Quer que eu me altere para aprender?\n[[melhoria: ler arquivos PDF anexados]]';
+  calls[0].finish();
+  const offer = await p1;
+  assert.equal(offer.text, 'Ainda não consigo ler PDF. Quer que eu me altere para aprender?', 'a marcação some do texto');
+  assert.equal(offer.improvementOffer, 'ler arquivos PDF anexados');
+
+  const p2 = o.send(chat.id, { text: 'sim, pode fazer', runId: 'm2' });
+  await tick();
+  const run = calls[1].opts;
+  assert.equal(run.cwd, 'C:\\repositorios\\Projetos-Pessoais\\ohara');
+  assert.equal(run.model, 'opus');
+  assert.match(run.prompt, /aceitou que você se altere para conseguir: ler arquivos PDF anexados/);
+  assert.match(run.prompt, /Pedido original dele: "lê esse PDF pra mim"/);
+  assert.equal(run.sessionId, undefined);
+  calls[1].finish();
+  await p2;
+  assert.equal(chat.cwd, 'C:\\tmp', 'a conversa continua na pasta dela');
+});
+
+test('a oferta vale só para a resposta seguinte', async () => {
+  const { o } = setup();
+  const chat = o.create('C:\\tmp');
+  const p1 = o.send(chat.id, { text: 'manda um fax', runId: 'f1' });
+  await tick();
+  calls[0].answer = 'Não tenho fax.\n[[melhoria: enviar fax]]';
+  calls[0].finish();
+  await p1;
+  const p2 = o.send(chat.id, { text: 'deixa, me fala a previsão do tempo', runId: 'f2' });
+  await tick();
+  assert.notEqual(calls[1].opts.cwd, 'C:\\repositorios\\Projetos-Pessoais\\ohara');
+  calls[1].finish();
+  await p2;
+  const p3 = o.send(chat.id, { text: 'sim', runId: 'f3' });
+  await tick();
+  assert.equal(calls[2].opts.cwd, 'C:\\tmp', '"sim" atrasado não dispara a automelhoria');
+  calls[2].finish();
+  await p3;
+});

@@ -167,6 +167,23 @@ function fillAssistant(wrap, m, { live = false } = {}) {
     );
   }
   if (!live) renderDrafts(wrap, m);
+  if (!live) renderImprovementOffer(wrap, m);
+}
+
+// Ela se ofereceu para se alterar: um clique aceita (o mesmo que responder "sim").
+function renderImprovementOffer(wrap, m) {
+  wrap.querySelector('.improve-offer')?.remove();
+  const last = state.chat?.messages?.[state.chat.messages.length - 1];
+  if (!m.improvementOffer || (last && last.id && last.id !== m.id)) return;
+  const box = document.createElement('div');
+  box.className = 'improve-offer';
+  box.innerHTML = `<span>✨ Posso me alterar para: <b>${escapeHtml(m.improvementOffer)}</b></span><button class="btn small-btn primary">Sim, pode se alterar</button>`;
+  box.querySelector('button').addEventListener('click', () => {
+    box.remove();
+    el.input.value = 'Sim, pode se alterar.';
+    sendMessage();
+  });
+  wrap.appendChild(box);
 }
 
 // Mensagem para contato: só sai depois do clique em "Enviar".
@@ -609,3 +626,34 @@ async function newChatWithPrompt(text, { cwd, send = false, override } = {}) {
   renderUsage(await central.getUsage());
   el.input.focus();
 })();
+
+// ---------- Voz neural ----------
+// O processo principal manda um MP3 por trecho; tocam em fila, na ordem em que chegam.
+const tts = { id: 0, queue: [], audio: null };
+function ttsNext() {
+  if (tts.audio || !tts.queue.length) return;
+  const file = tts.queue.shift();
+  const a = new Audio(fileUrl(file));
+  tts.audio = a;
+  const done = () => {
+    if (tts.audio === a) tts.audio = null;
+    ttsNext();
+  };
+  a.addEventListener('ended', done);
+  a.addEventListener('error', done);
+  a.play().catch(done);
+}
+central.onTtsPlay(({ id, file, first }) => {
+  if (first || id !== tts.id) {
+    // fala nova: descarta o que sobrou da anterior
+    tts.id = id;
+    tts.queue = [];
+    if (tts.audio) { tts.audio.pause(); tts.audio = null; }
+  }
+  tts.queue.push(file);
+  ttsNext();
+});
+central.onTtsStop(() => {
+  tts.queue = [];
+  if (tts.audio) { tts.audio.pause(); tts.audio = null; }
+});

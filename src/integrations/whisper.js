@@ -106,13 +106,16 @@ class Whisper {
   }
 
   // Recebe um WAV 16 kHz mono e devolve o texto.
-  transcribe(wavPath) {
+  // prompt: dica de vocabulário para o Whisper (ex.: "Ohara", para ele escrever o nome certo).
+  transcribe(wavPath, { prompt } = {}) {
     const exe = this.#findExe();
     if (!exe || !fs.existsSync(this.#modelPath())) return Promise.reject(new Error('Whisper não instalado. Instale em Configurações → Voz.'));
     const lang = this.getConfig().voice.language || 'pt';
     const threads = Math.max(2, Math.min(8, require('os').cpus().length - 1));
     return new Promise((resolve, reject) => {
-      const p = spawn(exe, ['-m', this.#modelPath(), '-f', wavPath, '-l', lang, '-nt', '-np', '-t', String(threads)], { cwd: path.dirname(wavPath), windowsHide: true });
+      const args = ['-m', this.#modelPath(), '-f', wavPath, '-l', lang, '-nt', '-np', '-t', String(threads)];
+      if (prompt) args.push('--prompt', prompt);
+      const p = spawn(exe, args, { cwd: path.dirname(wavPath), windowsHide: true });
       let out = '';
       let err = '';
       p.stdout.on('data', (d) => (out += d.toString('utf8')));

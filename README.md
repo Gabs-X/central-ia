@@ -3,6 +3,10 @@
 App desktop (Electron) que usa as **suas assinaturas** do Claude Code e do Codex como um assistente para o PC inteiro.
 Para cada pedido, ela escolhe a IA, o modelo e o nível de esforço mais adequados e acompanha a cota de cada assinatura.
 
+## Por que "Ohara"
+
+Em *One Piece*, Ohara é a ilha dos estudiosos: lá ficava a maior biblioteca do mundo, e os arqueólogos reuniam todo o conhecimento que encontravam para decifrar a história perdida. A ideia do app é parecida: juntar num só lugar as IAs, as conversas, as reuniões e as ferramentas do PC, e usar tudo isso para resolver o que você pedir. O app se chamava "Central IA" até a versão 0.3.
+
 ## Download
 
 Baixe a versão mais recente em **[Releases](https://github.com/Gabs-X/ohara/releases/latest)**:
@@ -38,11 +42,31 @@ Requisitos: `claude` e `codex` instalados e logados (`claude` e `codex login`).
 | Web | O Claude pesquisa e lê páginas (WebSearch/WebFetch); links nas respostas abrem no navegador. |
 | Captura de tela | 🖥️ esconde a janela, captura o monitor onde está o mouse e anexa ao pedido. |
 | Imagens | 🖼️ anexa arquivos de imagem. |
-| Voz | 🎤 abre a digitação por voz do Windows (Win+H, entende pt-BR). Com **Voz** marcado, as respostas são lidas pela voz "Maria". |
+| Voz | 🎤 abre a digitação por voz do Windows (Win+H, entende pt-BR). Com **Voz** marcado, as respostas são lidas em voz alta com uma voz natural (Francisca ou Antonio, as vozes neurais do Edge; troque em Ajustes → Voz). Sem internet, ela usa a voz "Maria" do Windows. |
 | Conversas | Ficam salvas. Dá pra trocar de IA no meio da conversa e o contexto vai junto. |
 | Vários agentes | Pode mandar outro pedido enquanto ela trabalha: o novo roda em paralelo (marcado com ⫽ paralelo), com o histórico da conversa. Com o campo vazio, o botão vira **Parar** e cancela tudo o que está rodando na conversa. |
 | Ações instantâneas | "Abre o Spotify", "abre o YouTube", "pesquisa no Google receita de bolo": resolvidas na hora, sem IA e sem gastar cota. Apps são procurados no menu Iniciar; se ela não achar, o pedido vai para a IA. Funciona também por voz ("Ohara, abre o Discord"). |
 | WhatsApp | Manda mensagens para você (pedido seu ou aviso de demandas novas depois de uma reunião) e, com sua confirmação, para os seus contatos. Veja abaixo. |
+| Conversa por voz | Diga "Ohara" e ela responde; o microfone fica aberto e você vai pedindo sem repetir o nome. Veja abaixo. |
+| Resolve ou aprende | Ela tenta outro caminho antes de dizer que não dá. Se faltar uma capacidade, oferece se alterar; com o seu "sim", implementa a mudança no próprio código. Veja abaixo. |
+
+## Conversa por voz
+
+Ligue **Escuta contínua** em Ajustes → Voz (precisa do Whisper, instalado pela mesma tela). Funciona com a janela minimizada.
+
+1. Diga **"Ohara"**. Ela responde ("Oi, Gabriel! Pode falar.") e abre uma conversa.
+2. Fale o pedido. Ela responde em voz alta e **continua ouvindo**: é só seguir pedindo, sem repetir o nome.
+3. Para encerrar, diga "valeu", "obrigado" ou "pode parar". Depois de 40 segundos em silêncio ela encerra sozinha.
+
+Também dá para falar tudo de uma vez: "Ohara, abre o Spotify".
+
+Para responder rápido, ela começa a falar assim que a primeira frase da resposta fica pronta, usa o modelo rápido para pedidos simples e responde em poucas frases. Enquanto fala, ela ignora o microfone para não ouvir a própria voz. A velocidade da voz fica em `voice.ttsRate` (padrão `+15%`) e o tempo de silêncio em `voice.conversationTimeoutSec`, no `config.json`.
+
+## Resolve ou aprende
+
+A Ohara tem um jeito resolutivo: antes de dizer que não consegue, tenta outro caminho (PowerShell, um app, um site, um script). Quando o pedido depende de algo que ela ainda não sabe fazer, ela explica o que falta e se oferece para se alterar. Aparece um botão **"Sim, pode se alterar"**; responder "sim" no chat ou por voz tem o mesmo efeito.
+
+Ao aceitar, ela trabalha no próprio repositório (`selfRepo` no `config.json`), com o modelo mais forte: implementa a mudança, escreve testes, roda `npm test` e faz um commit local. Ela não publica nada sozinha; no fim, pergunta se você quer que ela gere e publique a versão nova.
 
 ## WhatsApp
 
