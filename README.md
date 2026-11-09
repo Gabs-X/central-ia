@@ -1,220 +1,71 @@
 # Ohara
 
-App desktop (Electron) que usa as **suas assinaturas** do Claude Code e do Codex como um assistente para o PC inteiro.
-Para cada pedido, ela escolhe a IA, o modelo e o nível de esforço mais adequados e acompanha a cota de cada assinatura.
+**English** | [Português](README.pt-BR.md)
 
-## Por que "Ohara"
+Ohara is a Windows desktop assistant (Electron) that puts the Claude Code and Codex subscriptions you already pay for behind a single chat window for the whole PC. Both CLIs are strong on their own, but choosing the right model for each request and watching two separate usage quotas is tedious manual work. Ohara classifies every request locally, sends it to the provider, model and reasoning effort that fit the job, falls back to the other provider when a quota is running low, and carries the conversation context across when it switches. Around that core it turns meeting transcripts into a task board, runs instant local actions without spending tokens, and adds a few global hotkeys for working in any app.
 
-Em *One Piece*, Ohara é a ilha dos estudiosos: lá ficava a maior biblioteca do mundo, e os arqueólogos reuniam todo o conhecimento que encontravam para decifrar a história perdida. A ideia do app é parecida: juntar num só lugar as IAs, as conversas, as reuniões e as ferramentas do PC, e usar tudo isso para resolver o que você pedir. O app se chamava "Central IA" até a versão 0.3.
+## Technical highlights
 
-## Download
+- **Zero-token request router.** A keyword heuristic over normalized text sorts each prompt into one of nine categories (quick question, Windows command, code, complex code, web research, writing, planning, vision...) and maps it to a provider, model tier and effort level. Short follow-ups such as "go ahead" inherit the category of the conversation. → [`src/core/router.js`](src/core/router.js), [`test/router.test.js`](test/router.test.js)
+- **Quota-aware fallback.** Claude usage (5-hour and 7-day windows) comes from the CLI's own reports; Codex usage is read from the `rate_limits` entries in `~/.codex/sessions`. Above 70% Claude usage, Opus is downgraded to Sonnet; above 90%, requests move to Codex, and code goes back to Claude when Codex passes 90%. All thresholds are configurable. → [`src/core/usage.js`](src/core/usage.js), [`src/core/config.js`](src/core/config.js)
+- **Router that learns.** When you manually pick the same model for a category in 3 of your last 5 overrides, that choice becomes the new default for the category. → `learnPreferences` in [`src/core/router.js`](src/core/router.js)
+- **Context handoff between providers.** Each conversation tracks how far every CLI session has read (`syncedUpTo`), so when Ohara switches from Claude to Codex (or back) it injects only the messages that provider has not seen. Expired sessions are retried from scratch with the transferred history, and a second request sent while an agent is working runs in parallel in its own session. → [`src/core/orchestrator.js`](src/core/orchestrator.js), [`test/orchestrator.test.js`](test/orchestrator.test.js)
+- **CLI providers over streaming JSON.** Claude runs as `claude --output-format stream-json` with `--resume` for session continuity; Codex runs as `codex exec --json` inside a `workspace-write` sandbox. Tool calls are surfaced in the UI as they happen. → [`src/core/providers/claude.js`](src/core/providers/claude.js), [`src/core/providers/codex.js`](src/core/providers/codex.js), [`test/claude-args.test.js`](test/claude-args.test.js)
+- **Structured output for background jobs.** One-shot calls pass a strict JSON Schema to either CLI (`--json-schema` / `--output-schema`). Background features run under their own budget: they use Claude up to 70%, then Codex up to 85%, and otherwise defer until the quota window resets, so the chat always has headroom. → [`src/core/ai.js`](src/core/ai.js)
+- **Meeting pipeline.** Watches a folder for transcripts saved by a meeting bot, waits for the file to settle, merges reconnection parts, strips repeated speech-recognition lines, skips trivial calls, and extracts summary, decisions and action items into a Kanban board with deadlines, owners and "waiting on others" follow-ups. → [`src/core/meetings.js`](src/core/meetings.js), [`src/core/transcript.js`](src/core/transcript.js), [`test/meetings.test.js`](test/meetings.test.js)
+- **Instant local actions.** Simple requests like "open Spotify" or "search Google for X" are resolved on the spot (apps are looked up in the Start menu) without calling any model. → [`src/core/quick-actions.js`](src/core/quick-actions.js)
+- **Fix text anywhere.** A global hotkey copies the current selection in any app, corrects spelling, accents and punctuation with AI while keeping the writer's style, and pastes it back, restoring the original clipboard afterwards. Electron and Windows are injected, so the logic is unit-tested. → [`src/core/text-fix.js`](src/core/text-fix.js), [`test/text-fix.test.js`](test/text-fix.test.js)
+- **Safety defaults.** Claude runs in `--permission-mode auto` and Codex in `workspace-write`; full access is an explicit toggle. The Slack token and calendar URL are encrypted with Electron `safeStorage` (Windows DPAPI) and never reach the renderer. → [`src/main.js`](src/main.js)
 
-Baixe a versão mais recente em **[Releases](https://github.com/Gabs-X/ohara/releases/latest)**:
+Integrations: Google Calendar via secret iCal URL ([`calendar.js`](src/integrations/calendar.js)), GitHub PRs through the logged-in `gh` CLI ([`github.js`](src/integrations/github.js)), Slack DMs and mentions ([`slack.js`](src/integrations/slack.js)), and spoken replies with Edge neural voices plus an offline Windows fallback ([`tts.js`](src/integrations/tts.js)).
 
-- `Ohara-Setup-<versão>.exe`: instalador (recomendado).
-- `Ohara-Portatil-<versão>.exe`: roda direto, sem instalar.
+## Architecture
 
-Requisitos: Windows 10/11 com o `claude` e o `codex` instalados e logados.
-
-## Como rodar a partir do código
-
-```powershell
-npm install
-npm start          # abre o app (fica na bandeja)
-npm run dev        # mesmo, com DevTools
-npm test           # testes do roteador
+```mermaid
+flowchart LR
+    UI["Renderer<br/>(plain HTML/CSS/JS)"] -- "IPC via preload.js" --> Main["main.js<br/>window, tray, hotkeys"]
+    Main --> Orch["orchestrator.js<br/>chats, sessions, handoff"]
+    Orch --> Router["router.js<br/>local classification"]
+    Router --> Usage["usage.js<br/>Claude + Codex quotas"]
+    Orch --> Claude["providers/claude.js<br/>claude CLI (stream-json)"]
+    Orch --> Codex["providers/codex.js<br/>codex exec --json"]
+    Main --> Meetings["meetings.js<br/>transcripts → task board"]
+    Meetings --> AI["ai.js<br/>one-shot calls + JSON Schema"]
+    AI --> Claude
+    AI --> Codex
+    Main --> Integrations["integrations/<br/>calendar, GitHub, Slack, TTS"]
 ```
-
-Requisitos: `claude` e `codex` instalados e logados (`claude` e `codex login`).
-
-**Atalho global:** `Ctrl+Espaço` mostra ou esconde a janela. Fechar a janela só a esconde nos ícones ocultos da barra de tarefas; para sair, use **Sair** no ícone da bandeja.
-
-**Iniciar com o Windows:** vem ligado no app instalado, que abre escondido na bandeja ao ligar o PC. Para desligar, desmarque **Iniciar com o Windows** no menu do ícone da bandeja.
-
-**Versões antigas:** ao abrir uma versão nova pela primeira vez, a Ohara manda para a Lixeira os instaladores e portáteis de versões anteriores (Downloads, Área de Trabalho e pasta de arquivos gerados) e desinstala a antiga Central IA, se ela ainda estiver no PC. A versão em uso nunca é tocada.
-
-## O que ela faz
-
-| Recurso | Como funciona |
-|---|---|
-| Arquivos e repositórios | Escolha a pasta no topo (lista os repositórios de `C:\repositorios`). Os agentes trabalham nela. |
-| Comandos e apps do Windows | O Claude Code usa PowerShell (abrir programas, consultar o sistema, mexer em arquivos). |
-| Web | O Claude pesquisa e lê páginas (WebSearch/WebFetch); links nas respostas abrem no navegador. |
-| Captura de tela | 🖥️ esconde a janela, captura o monitor onde está o mouse e anexa ao pedido. |
-| Imagens | 🖼️ anexa arquivos de imagem. |
-| Voz | 🎤 abre a digitação por voz do Windows (Win+H, entende pt-BR). Com **Voz** marcado, as respostas são lidas em voz alta com uma voz natural (Francisca ou Antonio, as vozes neurais do Edge; troque em Ajustes → Voz). Sem internet, ela usa a voz "Maria" do Windows. |
-| Conversas | Ficam salvas. Dá pra trocar de IA no meio da conversa e o contexto vai junto. |
-| Vários agentes | Pode mandar outro pedido enquanto ela trabalha: o novo roda em paralelo (marcado com ⫽ paralelo), com o histórico da conversa. Com o campo vazio, o botão vira **Parar** e cancela tudo o que está rodando na conversa. |
-| Ações instantâneas | "Abre o Spotify", "abre o YouTube", "pesquisa no Google receita de bolo": resolvidas na hora, sem IA e sem gastar cota. Apps são procurados no menu Iniciar; se ela não achar, o pedido vai para a IA. Funciona também por voz ("Ohara, abre o Discord"). |
-| WhatsApp | Manda mensagens para você (pedido seu ou aviso de demandas novas depois de uma reunião) e, com sua confirmação, para os seus contatos. Veja abaixo. |
-| Conversa por voz | Diga "Ohara" e ela responde; o microfone fica aberto e você vai pedindo sem repetir o nome. Veja abaixo. |
-| Resolve ou aprende | Ela tenta outro caminho antes de dizer que não dá. Se faltar uma capacidade, oferece se alterar; com o seu "sim", implementa a mudança no próprio código. Veja abaixo. |
-
-## Conversa por voz
-
-Ligue **Escuta contínua** em Ajustes → Voz (precisa do Whisper, instalado pela mesma tela). Funciona com a janela minimizada.
-
-1. Diga **"Ohara"**. Ela responde ("Oi, Gabriel! Pode falar.") e abre uma conversa.
-2. Fale o pedido. Ela responde em voz alta e **continua ouvindo**: é só seguir pedindo, sem repetir o nome.
-3. Para encerrar, diga "valeu", "obrigado" ou "pode parar". Depois de 40 segundos em silêncio ela encerra sozinha.
-
-Também dá para falar tudo de uma vez: "Ohara, abre o Spotify".
-
-Para responder rápido, ela começa a falar assim que a primeira frase da resposta fica pronta, usa o modelo rápido para pedidos simples e responde em poucas frases. Enquanto fala, ela ignora o microfone para não ouvir a própria voz. A velocidade da voz fica em `voice.ttsRate` (padrão `+15%`) e o tempo de silêncio em `voice.conversationTimeoutSec`, no `config.json`.
-
-## Resolve ou aprende
-
-A Ohara é resolutiva e tem bom humor: resolve primeiro e, quando cabe, solta uma piada curta, mas nunca quando o assunto é sério ou você está com pressa. Antes de dizer que não consegue, tenta outro caminho (PowerShell, um app, um site, um script). Quando o pedido depende de algo que ela ainda não sabe fazer, ela explica o que falta e se oferece para se alterar. Aparece um botão **"Sim, pode se alterar"**; responder "sim" no chat ou por voz tem o mesmo efeito.
-
-Ao aceitar, ela trabalha no próprio repositório (`selfRepo` no `config.json`), com o modelo mais forte: implementa a mudança, escreve testes, roda `npm test` e faz um commit local. Ela não publica nada sozinha; no fim, pergunta se você quer que ela gere e publique a versão nova.
-
-## WhatsApp
-
-**Para você (CallMeBot).** Em Ajustes → WhatsApp, informe seu número com DDI e a chave do [CallMeBot](https://www.callmebot.com/blog/free-api-whatsapp-messages/). Depois é só pedir: "me manda no WhatsApp o resumo da reunião". Quando uma reunião gera demandas novas para você, chega um aviso com a lista e os prazos (dá para desligar em Ajustes). Cada resposta tem o botão 📱 para mandá-la ao seu WhatsApp.
-
-**Para os seus contatos (WhatsApp Web).** Em Ajustes → WhatsApp, clique em **Conectar** e escaneie o QR Code (no celular: Aparelhos conectados). Peça "manda pro João no zap que vou atrasar": a IA escreve a mensagem e a Ohara mostra um cartão com o destinatário e o texto. **Nada sai sem você clicar em Enviar.** Ela procura o contato pelo nome; se houver mais de um parecido, pede o nome completo e não envia. Não é a API oficial do WhatsApp: se a página mudar, o envio pode falhar, e em tese a conta pode sofrer restrição.
-
-## Roteamento automático
-
-É feito localmente, por palavras-chave, então não gasta token para decidir.
-
-| Categoria | Destino |
-|---|---|
-| Pergunta rápida | Claude **Haiku**, esforço baixo |
-| Comando no Windows | Claude **Sonnet**, esforço baixo |
-| Código (bug, teste, feature) | **Codex** |
-| Código complexo / arquitetura | Claude **Opus**, esforço alto |
-| Pesquisa na web | Claude **Sonnet** |
-| Escrita / texto | Claude **Sonnet** |
-| Planejamento / análise | Claude **Opus**, esforço alto |
-| Imagem / tela | Claude **Sonnet** |
-
-Enquanto você digita, a barra abaixo do campo mostra para onde o pedido vai. O seletor **Automático** permite forçar um modelo.
-
-### Gestão de cota
-
-- **Claude:** o CLI informa o uso real das janelas de 5h e 7 dias a cada pedido.
-- **Codex:** o uso é lido do `rate_limits` das sessões em `~/.codex/sessions`.
-- Acima de **70%** no Claude, o Opus vira Sonnet. Acima de **90%**, os pedidos vão para o Codex. Acima de **90%** no Codex, código volta para o Claude.
-- O painel lateral mostra as barras de uso, quando cada janela renova e os tokens do dia.
-
-## Segurança
-
-- Por padrão, o Claude roda em `--permission-mode auto` (um classificador aprova ou bloqueia cada ação) e o Codex em `workspace-write`, que só escreve na pasta escolhida.
-- **Acesso total** (no topo) libera tudo (`bypassPermissions` / `danger-full-access`). Use com cuidado.
-- O prompt de sistema manda a IA pedir confirmação antes de qualquer ação destrutiva.
-
-## Configuração
-
-Os dados ficam em `%APPDATA%\Ohara\`. Na primeira execução, os dados da antiga Central IA (`%APPDATA%\central-ia\`) são copiados para lá.
-
-- `config.json`: sobrescreve os valores de `src/core/config.js` (atalho, modelos, limites de cota, voz, pasta raiz).
-- `chats.json`: conversas.
-- `usage.json`: histórico de tokens e últimas cotas.
-- `capturas\`: prints de tela anexados.
-
-Exemplo de `config.json`:
-
-```json
-{
-  "hotkey": "Alt+Space",
-  "codex": { "model": "gpt-6.1-sol" },
-  "quota": { "claudeDowngradeAt": 0.6 }
-}
-```
-
-## Estrutura
 
 ```
 src/
-  main.js              janela, bandeja, atalho, captura, IPC
-  preload.js           ponte segura renderer ↔ main
-  core/
-    router.js          classificação e escolha de modelo (com cota)
-    orchestrator.js    conversas, sessões, transferência de contexto
-    usage.js           tokens e cota (Claude + Codex)
-    providers/         claude.js, codex.js: chamam os CLIs em modo JSON
-    system.js          voz (TTS), ditado, lista de repositórios
-  renderer/            interface (HTML/CSS/JS puro)
+  main.js            Electron main process: window, tray, global hotkeys, screen capture, IPC
+  preload.js         safe bridge between renderer and main
+  core/              router, orchestrator, usage, providers, meetings, automations, insights
+  integrations/      calendar, GitHub, Slack, TTS and other external services
+  renderer/          UI (plain HTML/CSS/JS, no framework)
+test/                node:test suites
 ```
 
-## Gerar o executável
+## Running and testing
+
+Requirements: Windows 10/11, Node.js, and the `claude` and `codex` CLIs installed and logged in (`claude`, `codex login`).
 
 ```powershell
-npm run dist
+npm install
+npm start        # launch the app (it lives in the system tray)
+npm run dev      # same, with DevTools
+npm test         # node --test test/*.test.js
+npm run dist     # build the NSIS installer and portable .exe into dist\
 ```
 
-Isso gera, na pasta `dist\`:
+The test suite uses Node's built-in test runner (no extra framework): 126 tests across 20 files covering the router, orchestrator, providers, meetings, transcript cleanup, text fix, storage and configuration.
 
-- `Ohara-Setup-<versão>.exe`: instalador com atalho na área de trabalho e no menu Iniciar.
-- `Ohara-Portatil-<versão>.exe`: roda direto, sem instalar.
+Prebuilt installers are available on the [Releases](https://github.com/Gabs-X/ohara/releases/latest) page. The executables are not code-signed, so SmartScreen may warn on first launch.
 
-O ícone é aplicado pelo `build/after-pack.js` (rcedit), porque a assinatura do electron-builder exige permissão de link simbólico no Windows.
-Os executáveis não são assinados, então o SmartScreen pode avisar na primeira execução: clique em "Mais informações" e depois em "Executar assim mesmo".
+Ohara is a personal tool, so some defaults point to the author's folders (workspace root, meeting transcripts, its own repository). Any key in [`src/core/config.js`](src/core/config.js) can be overridden in `%APPDATA%\Ohara\config.json`.
 
-## Reuniões e painel de demandas
+## Status
 
-A central observa `C:\Users\gabri\Downloads\Gutenberg`, onde o bot salva um transcript `.md` no fim de cada call. Para cada reunião nova:
+Actively developed and used daily by the author. Since v0.6.10 the app ships as a slimmer, stability-focused build: WhatsApp messaging and voice input (local Whisper dictation and the wake word) are disabled in [`simplifyConfig`](src/core/config.js), while spoken replies keep working. The code for those features is still in `src/integrations/`.
 
-1. Espera 30 s com o arquivo parado e junta as partes de reconexão (`-2`, `-3`).
-2. Limpa as falas repetidas do reconhecimento de voz.
-3. Ignora reuniões curtas (menos de 15 falas) ou em que só uma pessoa falou, sem gastar token.
-4. Manda a transcrição ao Claude Sonnet, sem ferramentas e com saída em JSON validado. Se a cota do Claude passar de 90%, usa o Codex.
-5. Salva o resumo, os tópicos, as decisões e os combinados com outras pessoas, e manda o que ficou para você ao painel. Uma notificação do Windows avisa.
-
-No painel (aba **Reuniões**):
-
-- As demandas ficam em três colunas: **A fazer**, **Em andamento** e **Feito**. Dá pra arrastar entre colunas e editar com clique duplo.
-- Cada demanda mostra o prazo (com destaque se estiver atrasada), a prioridade, quem pediu e o trecho da call.
-- **Resolver com IA** abre uma conversa já com o contexto da demanda e da reunião.
-- Clicar na reunião de origem abre o resumo completo. Ali dá pra **Reprocessar** ou abrir o transcript.
-- Se a reunião ganhar uma parte nova, ela é reprocessada. Demandas em que você já mexeu são mantidas.
-
-O app precisa estar aberto para monitorar a pasta. No app instalado, ative **Iniciar com o Windows** no menu da bandeja: ele inicia escondido. Os transcripts que chegarem com o app fechado são processados quando ele abrir.
-
-Para ajustar (em `config.json`): `meetings.folder`, `meetings.model`, `meetings.minUtterances`, `meetings.ignoreBefore` (não processar reuniões antigas) e `meetings.enabled`.
-
-## Novidades da 0.3
-
-### Telas
-| Aba | O que tem |
-|---|---|
-| ☀️ **Hoje** | Demandas atrasadas, para hoje e para os próximos 3 dias. Próximas reuniões com a pauta (o que você deve a essas pessoas e o que elas te devem). O que outras pessoas te devem. PRs do GitHub. Briefing com IA. |
-| 💬 **Conversas** | O chat de sempre. O 🎤 agora usa o Whisper local quando ele está instalado. |
-| 📋 **Reuniões** | Painel com a coluna **Aguardando outros** (com **Cobrar**), **busca** em todas as transcrições, **Pessoas** e a página de cada reunião com **Copiar/Salvar .md/E-mail**. |
-| ⚡ **Automações** | Atalhos de rotina (um clique, também no menu da bandeja) e agendamentos. |
-| 📊 **Uso** | Tokens por dia e por função, evolução da cota, orçamento e o que o roteador aprendeu. |
-| ⚙️ **Ajustes** | Agenda, GitHub, Slack, voz, atalhos, reuniões e geral. |
-
-### Atalhos globais (padrão)
-| Atalho | Ação |
-|---|---|
-| `Ctrl+Espaço` | Mostra ou esconde a Central. |
-| `Alt+Espaço` | Janela rápida: pergunta e resposta por cima de tudo. |
-| `Ctrl+Alt+Espaço` | Janela rápida com o que você copiou: Explicar, Traduzir, Corrigir, Resumir, Diagnosticar erro. |
-| `Ctrl+Alt+V` | Fala: grava, transcreve com o Whisper e envia. |
-
-### Funções automáticas e orçamento
-Reuniões, briefings e importação do Slack são **de segundo plano**. Elas usam o Claude até o limite do orçamento (padrão: 70%), depois passam para o Codex (até 85%) e, se as duas cotas estiverem altas, **esperam a janela renovar**. Assim sempre sobra cota pra você no chat. Dá pra ajustar em **Uso**.
-
-### Roteador que aprende
-Quando você troca o modelo manualmente 3 vezes (das últimas 5) para o mesmo tipo de pedido, essa escolha vira o padrão daquela categoria. Dá pra ver e apagar o que ele aprendeu em **Uso**.
-
-### Aguardando outros e cobranças
-Cada reunião também registra o que os outros combinaram de fazer. A IA marca o que depende de você (`para_mim`); o resto fica escondido em "ver todos os combinados". Quando passa do prazo, chega uma notificação (às 10h e às 15h). **Cobrar** gera a mensagem para você copiar ou, com o Slack conectado, enviar por DM.
-
-### Pauta antes da call
-Se uma reunião tem o mesmo código do Meet em dias diferentes, ela é tratada como recorrente e a Central aprende o horário. Com a agenda conectada, vale para todos os eventos. Alguns minutos antes, chega a pauta: pendências com essas pessoas e o resumo da última vez.
-
-### Integrações
-- **Agenda:** endereço secreto iCal do Google Agenda, sem OAuth. Eventos recorrentes são expandidos e o link do Meet é ligado ao transcript.
-- **GitHub:** usa o `gh` já logado; as contas ficam em Ajustes.
-- **Slack:** token de usuário (`xoxp-`) com `search:read`, `users:read`, `im:write` e `chat:write`. Envia cobranças por DM e importa menções como demandas.
-- **Voz:** whisper.cpp local. Instale em Ajustes → Voz: baixa o binário oficial e o modelo (`tiny`, `base` ou `small`). A escuta contínua ("Central, …") é opcional.
-
-O token do Slack e o endereço da agenda ficam **criptografados com o DPAPI do Windows** (`safeStorage`) no `config.json`, e a interface nunca recebe o valor real.
-
-### Desenvolvimento
-- `CENTRAL_DATA_DIR=pasta` roda com outra pasta de dados, ao lado do app instalado.
-- `CENTRAL_SNAPSHOT=print.png CENTRAL_VIEW=today` salva um print da tela e fecha; os erros do console vão para `print.png.log`.
-- `CENTRAL_SNAPSHOT_QUICK=print.png` faz o mesmo para a janela rápida.
+The name comes from Ohara, the island of scholars and its great library in *One Piece*. The app was called "Central IA" up to v0.3.
